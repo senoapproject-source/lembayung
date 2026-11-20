@@ -1,9 +1,7 @@
 /**
- * Script Upload File APK Cuanin ke Supabase Storage (Direct 1-Click Download Link)
- * -------------------------------------------------------------------------------
- * Cara pakai:
- *   npm run upload:apk:prod    (upload APK ke Supabase Production)
- *   npm run upload:apk:testing (upload APK ke Supabase Testing)
+ * Script Upload File APK Lembayung ke Supabase Storage
+ * - Testing: npm run upload:apk:testing
+ * - Production: npm run upload:apk:prod
  */
 
 import fs from 'node:fs';

@@ -172,8 +172,8 @@ export async function checkForAppUpdate(): Promise<AppUpdateInfo | null> {
   }
 }
 
-const TESTING_SUPABASE_URL = 'https://yeqbrzhsqpfbekrnpxub.supabase.co';
-const TESTING_SUPABASE_ANON_KEY = 'sb_publishable_21O73qsYgjhQK-pGh_s3Eg_7OLtesL2';
+const FALLBACK_SUPABASE_URL = '';
+const FALLBACK_SUPABASE_ANON_KEY = '';
 
 export function getAppEnvironment(): 'testing' | 'production' {
   const envMode = (import.meta.env.VITE_APP_ENV as string | undefined) || import.meta.env.MODE;
@@ -196,10 +196,10 @@ export function getSupabaseConfig(settings?: AppSettings): {
   // Prioritaskan URL & Key bawaan environment build (Production / Testing)
   // agar saat upgrade dari APK Testing ke APK Production tidak nyangkut ke URL Testing lama di IndexedDB!
   const url = (
-    (!isPlaceholderUrl ? envUrl : settings?.supabaseUrl || TESTING_SUPABASE_URL)
+    (!isPlaceholderUrl ? envUrl : settings?.supabaseUrl || FALLBACK_SUPABASE_URL)
   ).trim();
   const anonKey = (
-    (!isPlaceholderKey ? envKey : settings?.supabaseAnonKey || TESTING_SUPABASE_ANON_KEY)
+    (!isPlaceholderKey ? envKey : settings?.supabaseAnonKey || FALLBACK_SUPABASE_ANON_KEY)
   ).trim();
   const outletId = (settings?.outletId || 'CUAN-8899').trim().toUpperCase();
 

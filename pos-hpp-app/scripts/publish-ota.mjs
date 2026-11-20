@@ -1,15 +1,7 @@
 /**
- * Script Publikasi OTA Live Update Cuanin ke Supabase Storage
- * ----------------------------------------------------------------------------
- * Alur Versi:
- *   - Testing (3 digit): npm run publish:ota
- *       Otomatis naik digit ke-3 (patch): 1.1.0 -> 1.1.1 -> ... -> 1.1.9
- *       Atau set manual: npm run publish:ota -- 1.2.0 "Catatan rilis"
- *   - Production (2 digit): npm run publish:ota:prod
- *       Otomatis naik digit ke-2 (minor): 1.1 -> 1.2
- *       DAN otomatis menyamakan Testing ke versi awal siklus berikutnya (1.2.0)
- *       agar Testing lanjut ke 1.2.1, 1.2.2, dst.
- *       (Tambahkan --no-sync-testing jika hanya ingin publish Prod saja)
+ * Script Publikasi OTA Live Update Lembayung ke Supabase Storage
+ * - Testing (3 digit): npm run publish:ota
+ * - Production (2 digit) + auto-sync Testing: npm run publish:ota:prod
  */
 
 import fs from 'node:fs';
@@ -28,8 +20,8 @@ const positionalArgs = process.argv.slice(2).filter((arg) => !arg.startsWith('--
 
 function readSupabaseConfig(mode) {
   const envFile = path.join(ROOT_DIR, mode === 'production' ? '.env.production' : '.env.testing');
-  let supabaseUrl = 'https://yeqbrzhsqpfbekrnpxub.supabase.co';
-  let supabaseKey = 'sb_publishable_21O73qsYgjhQK-pGh_s3Eg_7OLtesL2';
+  let supabaseUrl = '';
+  let supabaseKey = '';
 
   if (fs.existsSync(envFile)) {
     const raw = fs.readFileSync(envFile, 'utf8');
@@ -43,6 +35,9 @@ function readSupabaseConfig(mode) {
         if (val && !val.includes('GANTI_DENGAN_PUBLISHABLE')) supabaseKey = val;
       }
     }
+  }
+  if (!supabaseUrl || !supabaseKey) {
+    throw new Error(`Konfigurasi Supabase tidak ditemukan di ${envFile}`);
   }
   return { supabaseUrl, supabaseKey };
 }
