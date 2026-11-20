@@ -1,11 +1,6 @@
-// Supabase Edge Function: cuanin-auth-email
-// Mengirim email verifikasi OTP, ID Outlet, Lupa Username, Lupa ID Outlet, dan Reset Password khusus Owner
-// Menggunakan Brevo Transactional Email API (https://api.brevo.com/v3/smtp/email)
-//
-// Secrets yang perlu diset di Supabase:
-//   BREVO_API_KEY       = xkeysib-...
-//   BREVO_SENDER_EMAIL  = email-pengirim-terverifikasi-di-brevo@gmail.com
-//   BREVO_SENDER_NAME   = Cuanin POS
+// Edge Function: Layanan Email Transaksional (Brevo) & Push Notification (FCM) Lembayung
+// Fitur: Verifikasi OTP Owner, Email ID Outlet, Pemulihan Akun Owner, Rekap Tutup Kasir, Ringkasan Laporan, & Push FCM
+// Env Secrets: BREVO_API_KEY, BREVO_SENDER_EMAIL, BREVO_SENDER_NAME, FIREBASE_SERVICE_ACCOUNT_JSON
 
 // @ts-ignore -- Deno URL import (aktif di runtime Supabase Edge Functions)
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.49.1';
