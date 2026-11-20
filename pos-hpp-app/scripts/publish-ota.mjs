@@ -1,0 +1,265 @@
+/**
+ * Script Publikasi OTA Live Update Cuanin ke Supabase Storage
+ * ----------------------------------------------------------------------------
+ * Alur Versi:
+ *   - Testing (3 digit): npm run publish:ota
+ *       Otomatis naik digit ke-3 (patch): 1.1.0 -> 1.1.1 -> ... -> 1.1.9
+ *       Atau set manual: npm run publish:ota -- 1.2.0 "Catatan rilis"
+ *   - Production (2 digit): npm run publish:ota:prod
+ *       Otomatis naik digit ke-2 (minor): 1.1 -> 1.2
+ *       DAN otomatis menyamakan Testing ke versi awal siklus berikutnya (1.2.0)
+ *       agar Testing lanjut ke 1.2.1, 1.2.2, dst.
+ *       (Tambahkan --no-sync-testing jika hanya ingin publish Prod saja)
+ */
+
+import fs from 'node:fs';
+import path from 'node:path';
+import crypto from 'node:crypto';
+import { execSync } from 'node:child_process';
+import AdmZip from 'adm-zip';
+import { createClient } from '@supabase/supabase-js';
+
+const ROOT_DIR = process.cwd();
+const DIST_DIR = path.join(ROOT_DIR, 'dist');
+
+const isProdMode = process.argv.includes('--prod');
+const skipSyncTesting = process.argv.includes('--no-sync-testing');
+const positionalArgs = process.argv.slice(2).filter((arg) => !arg.startsWith('--'));
+
+function readSupabaseConfig(mode) {
+  const envFile = path.join(ROOT_DIR, mode === 'production' ? '.env.production' : '.env.testing');
+  let supabaseUrl = 'https://yeqbrzhsqpfbekrnpxub.supabase.co';
+  let supabaseKey = 'sb_publishable_21O73qsYgjhQK-pGh_s3Eg_7OLtesL2';
+
+  if (fs.existsSync(envFile)) {
+    const raw = fs.readFileSync(envFile, 'utf8');
+    for (const line of raw.split(/\r?\n/)) {
+      if (line.startsWith('VITE_SUPABASE_URL=')) {
+        const val = line.replace('VITE_SUPABASE_URL=', '').trim();
+        if (val && !val.includes('GANTI_PROJECT_PROD_ANDA')) supabaseUrl = val;
+      }
+      if (line.startsWith('VITE_SUPABASE_ANON_KEY=')) {
+        const val = line.replace('VITE_SUPABASE_ANON_KEY=', '').trim();
+        if (val && !val.includes('GANTI_DENGAN_PUBLISHABLE')) supabaseKey = val;
+      }
+    }
+  }
+  return { supabaseUrl, supabaseKey };
+}
+
+function createSupabaseForMode(mode) {
+  const { supabaseUrl, supabaseKey } = readSupabaseConfig(mode);
+  return createClient(supabaseUrl, supabaseKey, { auth: { persistSession: false } });
+}
+
+function compareSemver(a, b) {
+  const pa = String(a || '1.0.0').replace(/^v/i, '').split('.').map((n) => parseInt(n, 10) || 0);
+  const pb = String(b || '1.0.0').replace(/^v/i, '').split('.').map((n) => parseInt(n, 10) || 0);
+  for (let i = 0; i < 3; i++) {
+    const va = pa[i] ?? 0;
+    const vb = pb[i] ?? 0;
+    if (va > vb) return 1;
+    if (va < vb) return -1;
+  }
+  return 0;
+}
+
+function bumpPatchVersion(ver) {
+  const parts = String(ver || '1.0.0')
+    .replace(/^v/i, '')
+    .split('.')
+    .map((n) => parseInt(n, 10) || 0);
+  while (parts.length < 3) parts.push(0);
+  parts[2] += 1;
+  return parts.join('.');
+}
+
+function bumpMinorVersion(ver) {
+  const parts = String(ver || '1.0')
+    .replace(/^v/i, '')
+    .split('.')
+    .map((n) => parseInt(n, 10) || 0);
+  const major = parts[0] ?? 1;
+  const minor = (parts[1] ?? 0) + 1;
+  return `${major}.${minor}`;
+}
+
+function toTestingBaseVersion(prodVer) {
+  const parts = String(prodVer || '1.0')
+    .replace(/^v/i, '')
+    .split('.')
+    .map((n) => parseInt(n, 10) || 0);
+  const major = parts[0] ?? 1;
+  const minor = parts[1] ?? 0;
+  return `${major}.${minor}.0`;
+}
+
+function readCodeAppVersion(mode) {
+  let codeAppVer = mode === 'production' ? '1.0' : '1.0.0';
+  const syncPath = path.join(ROOT_DIR, 'src', 'services', 'syncService.ts');
+  if (fs.existsSync(syncPath)) {
+    const src = fs.readFileSync(syncPath, 'utf8');
+    const ternaryMatch = src.match(/APP_VERSION\s*=[\s\S]*?\?\s*['"]([^'"]+)['"]\s*:\s*['"]([^'"]+)['"]/);
+    if (ternaryMatch) {
+      codeAppVer = mode === 'production' ? ternaryMatch[1] : ternaryMatch[2];
+    } else {
+      const simpleMatch = src.match(/APP_VERSION\s*=\s*['"]([^'"]+)['"]/);
+      if (simpleMatch) codeAppVer = simpleMatch[1];
+    }
+  }
+  return codeAppVer;
+}
+
+async function publishTarget({ mode, version, notes, currentRow }) {
+  const sb = createSupabaseForMode(mode);
+  const label = mode === 'production' ? 'PRODUCTION' : 'TESTING';
+
+  console.log(`\n🚀 [${label} 1/5] Mem-build bundle web Cuanin (mode: ${mode})...`);
+  execSync(`npm run build:${mode === 'production' ? 'prod' : 'testing'}`, {
+    stdio: 'inherit',
+  });
+
+  if (!fs.existsSync(DIST_DIR)) {
+    throw new Error('Folder dist/ tidak ditemukan setelah build.');
+  }
+
+  console.log(`📦 [${label} 2/5] Membungkus dist/ menjadi cuanin-ota-${version}.zip...`);
+  const zip = new AdmZip();
+  zip.addLocalFolder(DIST_DIR);
+  const zipBuffer = zip.toBuffer();
+  const sha256Hex = crypto.createHash('sha256').update(zipBuffer).digest('hex');
+  const fileName = `cuanin-ota-${version}.zip`;
+
+  console.log(
+    `☁️  [${label} 3/5] Mengunggah ${fileName} (${Math.round(zipBuffer.length / 1024)} KB, SHA256: ${sha256Hex.slice(0, 12)}...) ke Supabase Storage (${label})...`
+  );
+  const { error: uploadErr } = await sb.storage
+    .from('cuanin-updates')
+    .upload(fileName, zipBuffer, {
+      contentType: 'application/zip',
+      upsert: true,
+    });
+
+  if (uploadErr) {
+    console.error(`\n❌ [${label}] Gagal upload ke Supabase Storage:`, uploadErr.message);
+    process.exit(1);
+  }
+
+  const { data: pubUrlData } = sb.storage.from('cuanin-updates').getPublicUrl(fileName);
+  const bundleZipUrl = `${pubUrlData.publicUrl}?sha256=${sha256Hex}`;
+
+  let existingRow = currentRow;
+  if (!existingRow) {
+    const { data } = await sb.from('app_versions').select('*').eq('id', 'android').maybeSingle();
+    existingRow = data;
+  }
+
+  console.log(`📝 [${label} 4/5] Memperbarui tabel app_versions (${label}) ke v${version}...`);
+  const { error: dbErr } = await sb.from('app_versions').upsert(
+    {
+      id: 'android',
+      latest_version: version,
+      min_required_version: existingRow?.min_required_version || '1.0.0',
+      download_url: existingRow?.download_url || bundleZipUrl,
+      bundle_zip_url: bundleZipUrl,
+      release_notes: notes,
+      force_update: false,
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: 'id' }
+  );
+
+  if (dbErr) {
+    console.error(`\n❌ [${label}] Gagal memperbarui tabel app_versions:`, dbErr.message);
+    process.exit(1);
+  }
+
+  console.log(`🧹 [${label} 5/5] Membersihkan file OTA versi lama di bucket "cuanin-updates"...`);
+  const { data: listedFiles, error: listErr } = await sb.storage
+    .from('cuanin-updates')
+    .list('', { limit: 200 });
+
+  if (!listErr && Array.isArray(listedFiles)) {
+    const otaFiles = listedFiles
+      .filter((f) => /^cuanin-ota-\d+\.\d+(?:\.\d+)?\.zip$/.test(String(f.name || '')))
+      .sort((a, b) => {
+        if (a.name === fileName) return -1;
+        if (b.name === fileName) return 1;
+        const ta = Date.parse(a.updated_at || a.created_at || '') || 0;
+        const tb = Date.parse(b.updated_at || b.created_at || '') || 0;
+        return tb - ta;
+      });
+
+    const toDelete = otaFiles
+      .slice(2)
+      .map((f) => f.name)
+      .filter((name) => name !== fileName);
+    if (toDelete.length > 0) {
+      const { error: rmErr } = await sb.storage.from('cuanin-updates').remove(toDelete);
+      if (rmErr) {
+        console.warn(`⚠️  [${label}] Gagal menghapus beberapa file OTA lama: ${rmErr.message}`);
+      } else {
+        console.log(`🗑️  [${label}] Menghapus ${toDelete.length} file OTA lama (${toDelete.join(', ')})`);
+      }
+    } else {
+      console.log(`✨ [${label}] Storage sudah bersih (hanya ${otaFiles.length} file OTA).`);
+    }
+  }
+
+  console.log(`✅ [${label}] Update OTA Cuanin v${version} sudah tayang!`);
+  console.log(`🔗 [${label}] Bundle URL: ${bundleZipUrl}`);
+}
+
+async function main() {
+  const primaryMode = isProdMode ? 'production' : 'testing';
+  const sb = createSupabaseForMode(primaryMode);
+
+  const codeAppVer = readCodeAppVersion(primaryMode);
+  const { data: currentRow } = await sb
+    .from('app_versions')
+    .select('*')
+    .eq('id', 'android')
+    .maybeSingle();
+
+  const customVer = positionalArgs[0] || null;
+  const customNotes =
+    positionalArgs[1] ||
+    (isProdMode
+      ? 'Rilis stabil Cuanin ke Production via OTA.'
+      : 'Pembaruan tahap testing Cuanin via OTA.');
+
+  const dbVer = currentRow?.latest_version || (isProdMode ? '1.0' : '1.0.0');
+  const highestBase = compareSemver(codeAppVer, dbVer) > 0 ? codeAppVer : dbVer;
+  const nextVersion =
+    customVer || (isProdMode ? bumpMinorVersion(highestBase) : bumpPatchVersion(highestBase));
+
+  await publishTarget({
+    mode: primaryMode,
+    version: nextVersion,
+    notes: customNotes,
+    currentRow,
+  });
+
+  // Saat rilis ke Production (mis. v1.2), otomatis samakan Testing ke v1.2.0
+  // supaya siklus testing berikutnya lanjut di v1.2.1, v1.2.2, dst.
+  if (isProdMode && !skipSyncTesting) {
+    const nextTestingVersion = toTestingBaseVersion(nextVersion);
+    console.log(
+      `\n🔄 Menyelaraskan Cuanin Testing ke v${nextTestingVersion} (mengikuti rilis Production v${nextVersion})...`
+    );
+    await publishTarget({
+      mode: 'testing',
+      version: nextTestingVersion,
+      notes: `Sinkron rilis Production v${nextVersion} (awal siklus testing v${nextTestingVersion}).`,
+    });
+  }
+
+  console.log(
+    `\n📱 Selesai! Semua perangkat yang terpasang Cuanin akan menerima notifikasi update otomatis.\n`
+  );
+}
+
+main().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});

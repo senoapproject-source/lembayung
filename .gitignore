@@ -1,0 +1,45 @@
+# ============================================================================
+# Lembayung (POS & Kalkulator HPP) — .gitignore
+# Menjaga file rahasia, keystore, Firebase keys, dan hasil build tidak ikut push
+# ============================================================================
+
+# Dependencies & Build Outputs
+node_modules/
+dist/
+dist-ssr/
+*.local
+
+# Environment files (tetap simpan .env.example sebagai template)
+.env
+.env.*
+!.env.example
+
+# Sensitive Keys, Keystores & Firebase Admin Credentials (WAJIB DIABAIKAN!)
+cuanin-release-key
+*release-key*
+*.jks
+*.keystore
+*firebase-adminsdk*.json
+google-services.json
+GoogleService-Info.plist
+
+# Android Build Artifacts & IDE Cache
+**/android/.gradle/
+**/android/.kotlin/
+**/android/.idea/
+**/android/build/
+**/android/app/build/
+**/android/app/release/
+**/android/local.properties
+*.apk
+*.aab
+
+# Logs & OS/Editor Files
+logs/
+*.log
+npm-debug.log*
+.DS_Store
+Thumbs.db
+.vscode/*
+!.vscode/extensions.json
+.idea/

@@ -1,0 +1,15 @@
+{
+  "name": "plan-project-po-root",
+  "private": true,
+  "scripts": {
+    "dev": "npm --prefix pos-hpp-app run dev",
+    "build": "npm --prefix pos-hpp-app run build",
+    "lint": "npm --prefix pos-hpp-app run lint",
+    "apk:testing": "npm --prefix pos-hpp-app run apk:testing",
+    "apk:prod": "npm --prefix pos-hpp-app run apk:prod",
+    "publish:ota": "npm --prefix pos-hpp-app run publish:ota",
+    "publish:ota:prod": "npm --prefix pos-hpp-app run publish:ota:prod",
+    "upload:apk:testing": "npm --prefix pos-hpp-app run upload:apk:testing",
+    "upload:apk:prod": "npm --prefix pos-hpp-app run upload:apk:prod"
+  }
+}
