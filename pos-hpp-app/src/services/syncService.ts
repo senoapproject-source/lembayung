@@ -128,10 +128,7 @@ export async function applyOtaBundleUpdate(
   } catch (err) {
     return {
       success: false,
-      message:
-        err instanceof Error
-          ? `Gagal mengunduh OTA bundle: ${err.message}`
-          : 'Gagal memasang update otomatis.',
+      message: 'Gagal mengunduh pembaruan. Pastikan koneksi internet stabil lalu coba lagi.',
     };
   }
 }

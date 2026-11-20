@@ -138,10 +138,10 @@ export function App() {
     });
     const isManualApk = !info.bundleZipUrl;
     sendDeviceNotification({
-      title: `Update Lembayung v${info.latestVersion} Tersedia`,
+      title: `Pembaruan Lembayung v${info.latestVersion} Tersedia`,
       body: isManualApk
-        ? 'Pembaruan aplikasi (APK) tersedia. Silakan download & update secara manual.'
-        : `${info.releaseNotes || 'Pembaruan fitur terbaru siap dipasang.'}`,
+        ? 'Versi terbaru Lembayung sudah tersedia. Ketuk untuk mengunduh pembaruan.'
+        : `${info.releaseNotes || 'Pembaruan fitur dan perbaikan terbaru siap dipasang.'}`,
       dedupKey: `app-update-${info.latestVersion}`,
     });
   };
@@ -366,7 +366,7 @@ export function App() {
   if (!ready) {
     return (
       <div className="min-h-screen bg-[#faf9f5] flex items-center justify-center text-sm text-[#6b6a68]">
-        Menyiapkan database offline...
+        Menyiapkan aplikasi...
       </div>
     );
   }

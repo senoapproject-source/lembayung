@@ -85,8 +85,8 @@ export const UpdatePromptModal: React.FC<UpdatePromptModalProps> = ({
             >
               <RefreshCw size={16} className={updating ? 'animate-spin' : ''} />
               {updating
-                ? 'Mengunduh & Memasang Update...'
-                : `Update Otomatis Sekarang (v${info.latestVersion})`}
+                ? 'Mengunduh & Memasang Pembaruan...'
+                : `Perbarui Sekarang (v${info.latestVersion})`}
             </button>
           ) : (
             <a
@@ -99,7 +99,7 @@ export const UpdatePromptModal: React.FC<UpdatePromptModalProps> = ({
               }}
               className="h-12 rounded-[10px] bg-[#1F7A5A] hover:bg-[#15563f] text-white font-semibold text-sm flex items-center justify-center gap-2"
             >
-              <Download size={16} /> Download Update APK (v{info.latestVersion})
+              <Download size={16} /> Unduh Versi Terbaru (v{info.latestVersion})
             </a>
           )}
 

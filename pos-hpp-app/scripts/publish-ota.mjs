@@ -220,8 +220,8 @@ async function main() {
   const customNotes =
     positionalArgs[1] ||
     (isProdMode
-      ? 'Rilis stabil Cuanin ke Production via OTA.'
-      : 'Pembaruan tahap testing Cuanin via OTA.');
+      ? 'Pembaruan fitur dan peningkatan performa Lembayung.'
+      : 'Pembaruan dan perbaikan terbaru Lembayung.');
 
   const dbVer = currentRow?.latest_version || (isProdMode ? '1.0' : '1.0.0');
   const highestBase = compareSemver(codeAppVer, dbVer) > 0 ? codeAppVer : dbVer;
@@ -245,7 +245,7 @@ async function main() {
     await publishTarget({
       mode: 'testing',
       version: nextTestingVersion,
-      notes: `Sinkron rilis Production v${nextVersion} (awal siklus testing v${nextTestingVersion}).`,
+      notes: `Pembaruan terbaru Lembayung v${nextVersion} siap digunakan.`,
     });
   }
 

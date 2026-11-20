@@ -417,10 +417,10 @@ export async function startRealtimeTransactionNotifications(): Promise<void> {
         if (!row?.latest_version) return;
         const isManualApk = !row.bundle_zip_url;
         sendDeviceNotification({
-          title: `Update Lembayung v${row.latest_version} Tersedia`,
+          title: `Pembaruan Lembayung v${row.latest_version} Tersedia`,
           body: isManualApk
-            ? `Pembaruan aplikasi (APK) tersedia. Silakan download & update secara manual.`
-            : `${row.release_notes || 'Pembaruan fitur terbaru siap dipasang.'}`,
+            ? 'Versi terbaru Lembayung sudah tersedia. Ketuk untuk mengunduh pembaruan.'
+            : `${row.release_notes || 'Pembaruan fitur dan perbaikan terbaru siap dipasang.'}`,
           dedupKey: `app-update-${row.latest_version}`,
         });
       }

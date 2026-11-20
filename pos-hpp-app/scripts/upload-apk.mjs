@@ -77,7 +77,7 @@ async function main() {
   const customVer = positionalArgs[0] || null;
   const customNotes =
     positionalArgs[1] ||
-    'Pembaruan aplikasi (APK) tersedia. Silakan download & pasang update secara manual.';
+    'Versi terbaru Lembayung sudah tersedia. Silakan unduh dan pasang pembaruan.';
 
   const prevVer = currentRow?.latest_version || (isProd ? '1.0' : '1.0.0');
   const nextVersion = customVer || (isProd ? bumpMinor(prevVer) : bumpPatch(prevVer));

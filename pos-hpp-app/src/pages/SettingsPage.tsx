@@ -336,14 +336,14 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
     try {
       const info = await checkForAppUpdate();
       if (!info) {
-        alert('Tidak dapat memeriksa update. Pastikan perangkat terhubung ke internet & tabel app_versions sudah dibuat di Supabase.');
+        alert('Tidak dapat memeriksa pembaruan. Pastikan perangkat terhubung ke internet lalu coba lagi.');
         return;
       }
       if (info.hasUpdate) {
         if (info.bundleZipUrl) {
           if (
             confirm(
-              `Update Lembayung v${info.latestVersion} tersedia!\n\nCatatan rilis:\n${info.releaseNotes}\n\nPasang update otomatis sekarang (tanpa install APK)?`
+              `Pembaruan Lembayung v${info.latestVersion} tersedia!\n\nApa yang baru:\n${info.releaseNotes}\n\nPasang pembaruan sekarang?`
             )
           ) {
             const res = await applyOtaBundleUpdate(info.bundleZipUrl, info.latestVersion);
@@ -351,7 +351,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
           }
         } else if (
           confirm(
-            `Update Lembayung v${info.latestVersion} tersedia!\n\nCatatan rilis:\n${info.releaseNotes}\n\nDownload APK terbaru sekarang?`
+            `Pembaruan Lembayung v${info.latestVersion} tersedia!\n\nApa yang baru:\n${info.releaseNotes}\n\nUnduh versi terbaru sekarang?`
           )
         ) {
           markVersionInstalled(info.latestVersion);

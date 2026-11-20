@@ -45,9 +45,7 @@ async function invokeAuthEmailFunction(
       }
       return {
         success: false,
-        error:
-          error.message ||
-          'Gagal menghubungi layanan email. Pastikan Edge Function cuanin-auth-email sudah aktif.',
+        error: 'Layanan email sedang tidak dapat dijangkau. Silakan coba beberapa saat lagi.',
       };
     }
 
