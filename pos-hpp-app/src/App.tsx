@@ -31,6 +31,7 @@ import { PublicReceiptView } from './components/PublicReceiptView';
 import { WebLoginPage } from './web/WebLoginPage';
 import { WebDashboardShell } from './web/WebDashboardShell';
 import { CuaninLogo } from './components/CuaninLogo';
+import { LembayungSplash } from './components/LembayungSplash';
 import { UpdatePromptModal } from './components/UpdatePromptModal';
 import { CloseShiftModal, OpenShiftScreen } from './components/CashierShiftModals';
 import type { User } from './types/models';
@@ -94,6 +95,12 @@ export function App() {
   const [updateDismissed, setUpdateDismissed] = useState<boolean>(false);
   const [backExitToast, setBackExitToast] = useState<boolean>(false);
   const [showCloseShiftModal, setShowCloseShiftModal] = useState<boolean>(false);
+  const [showSplash, setShowSplash] = useState<boolean>(() => {
+    if (Capacitor.isNativePlatform()) return true;
+    return sessionStorage.getItem('lembayung_splash_done') !== '1';
+  });
+  const [splashExiting, setSplashExiting] = useState<boolean>(false);
+  const mountTimeRef = useRef<number>(Date.now());
 
   // Riwayat navigasi menu untuk tombol Back di navbar Android & browser
   const viewHistoryRef = useRef<ActiveView[]>([]);
@@ -180,6 +187,31 @@ export function App() {
       stopRealtimeTransactionNotifications();
     };
   }, []);
+
+  useEffect(() => {
+    if (!ready || !showSplash) return;
+    const elapsed = Date.now() - mountTimeRef.current;
+    const minDuration = 1400;
+    const remaining = Math.max(0, minDuration - elapsed);
+
+    const exitTimer = setTimeout(() => {
+      setSplashExiting(true);
+    }, remaining);
+
+    const removeTimer = setTimeout(() => {
+      setShowSplash(false);
+      try {
+        sessionStorage.setItem('lembayung_splash_done', '1');
+      } catch {
+        // ignore
+      }
+    }, remaining + 480);
+
+    return () => {
+      clearTimeout(exitTimer);
+      clearTimeout(removeTimer);
+    };
+  }, [ready, showSplash]);
 
   useEffect(() => {
     const runAutoSync = async () => {
@@ -394,36 +426,43 @@ export function App() {
   }
 
   if (!ready) {
-    return (
-      <div className="min-h-screen bg-[#faf9f5] flex items-center justify-center text-sm text-[#6b6a68]">
-        Menyiapkan aplikasi...
-      </div>
-    );
+    return <LembayungSplash exiting={false} />;
   }
+
+  const splashOverlay = showSplash ? <LembayungSplash exiting={splashExiting} /> : null;
 
   // ============================================================================
   // MODE WEBSITE BACKOFFICE (KHUSUS OWNER & MANAGER — TANPA MENU KASIR)
   // ============================================================================
   if (isWebPortal) {
     if (!currentUser || !currentUser.active || currentUser.role === 'kasir') {
-      return <WebLoginPage onLoginSuccess={handleLogin} />;
+      return (
+        <>
+          {splashOverlay}
+          <WebLoginPage onLoginSuccess={handleLogin} />
+        </>
+      );
     }
     return (
-      <WebDashboardShell
-        user={currentUser}
-        isOnline={isOnline}
-        isAutoSyncing={isAutoSyncing}
-        pendingSyncCount={pendingSyncCount}
-        darkMode={darkMode}
-        onToggleDarkMode={toggleDarkMode}
-        onLogout={handleFullLogout}
-      />
+      <>
+        {splashOverlay}
+        <WebDashboardShell
+          user={currentUser}
+          isOnline={isOnline}
+          isAutoSyncing={isAutoSyncing}
+          pendingSyncCount={pendingSyncCount}
+          darkMode={darkMode}
+          onToggleDarkMode={toggleDarkMode}
+          onLogout={handleFullLogout}
+        />
+      </>
     );
   }
 
   if (!currentUser || !currentUser.active) {
     return (
       <div className="min-h-screen bg-[#faf9f5] safe-frame flex justify-center items-center relative">
+        {splashOverlay}
         <button
           type="button"
           onClick={toggleDarkMode}
@@ -462,12 +501,15 @@ export function App() {
   // Khusus Kasir: wajib Buka Kasir (hitung & input uang modal awal) sebelum masuk ke halaman Kasir
   if (!isManagerOrOwner && !activeCashierShift) {
     return (
-      <OpenShiftScreen
-        user={currentUser}
-        namaUsaha={settings?.namaUsaha}
-        onOpened={() => setActiveView('kasir')}
-        onSwitchUser={handleLockToPin}
-      />
+      <>
+        {splashOverlay}
+        <OpenShiftScreen
+          user={currentUser}
+          namaUsaha={settings?.namaUsaha}
+          onOpened={() => setActiveView('kasir')}
+          onSwitchUser={handleLockToPin}
+        />
+      </>
     );
   }
 
@@ -518,6 +560,7 @@ export function App() {
 
   return (
     <div className="h-screen w-screen bg-[#faf9f5] safe-frame flex flex-col md:flex-row overflow-hidden">
+      {splashOverlay}
       {/* ====================================================================
           SIDEBAR NAVIGASI UNTUK TABLET & DESKTOP (md:flex)
          ==================================================================== */}
