@@ -110,7 +110,7 @@ export function getWebAppBaseUrl(settings?: AppSettings): string {
     return `${window.location.origin}${window.location.pathname}`.replace(/\/+$/, '');
   }
   return getAppEnvironment() === 'testing'
-    ? 'https://lembayung-test.pages.dev'
+    ? 'https://lembayung-testing.pages.dev'
     : 'https://lembayung-so1.pages.dev';
 }
 
