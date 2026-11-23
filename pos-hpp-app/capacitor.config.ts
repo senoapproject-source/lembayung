@@ -14,6 +14,13 @@ const config: CapacitorConfig = {
       resetWhenUpdate: true,
       statsUrl: '',
     },
+    LocalNotifications: {
+      smallIcon: 'ic_stat_lembayung',
+      iconColor: '#1F7A5A',
+    },
+    PushNotifications: {
+      presentationOptions: ['badge', 'sound', 'alert'],
+    },
   },
 };
 

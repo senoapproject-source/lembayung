@@ -538,20 +538,14 @@ export function App() {
       }
       className="inline-flex items-center gap-1 text-[#16a34a]"
     >
-      <span
-        className={`w-2.5 h-2.5 rounded-full bg-[#16a34a] inline-block shrink-0 ${
-          isAutoSyncing ? 'animate-pulse' : ''
-        }`}
-      />
-      <Wifi size={13} />
+      <Wifi size={14} className={isAutoSyncing ? 'animate-pulse' : ''} />
     </span>
   ) : (
     <span
       title={`Offline (${pendingSyncCount} antrean)`}
       className="inline-flex items-center gap-1 text-[#dc2626]"
     >
-      <span className="w-2.5 h-2.5 rounded-full bg-[#dc2626] inline-block shrink-0" />
-      <WifiOff size={13} />
+      <WifiOff size={14} />
       {pendingSyncCount > 0 && (
         <span className="text-[10px] font-bold">{pendingSyncCount}</span>
       )}
