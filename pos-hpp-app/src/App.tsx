@@ -191,7 +191,7 @@ export function App() {
   useEffect(() => {
     if (!ready || !showSplash) return;
     const elapsed = Date.now() - mountTimeRef.current;
-    const minDuration = 1400;
+    const minDuration = 2650;
     const remaining = Math.max(0, minDuration - elapsed);
 
     const exitTimer = setTimeout(() => {
@@ -205,7 +205,7 @@ export function App() {
       } catch {
         // ignore
       }
-    }, remaining + 480);
+    }, remaining + 720);
 
     return () => {
       clearTimeout(exitTimer);
