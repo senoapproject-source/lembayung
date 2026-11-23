@@ -10,7 +10,6 @@ interface PublicReceiptViewProps {
 
 export const PublicReceiptView: React.FC<PublicReceiptViewProps> = ({
   receipt,
-  onCloseToApp,
 }) => {
   const isVoid = receipt.st === 'void';
 
