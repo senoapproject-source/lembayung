@@ -1,5 +1,5 @@
 import { formatJam, formatRupiah, formatTanggalLengkap } from './calculations';
-import { getSupabaseClient } from '../services/syncService';
+import { getAppEnvironment, getSupabaseClient } from '../services/syncService';
 import type { AppSettings, Transaction } from '../types/models';
 
 /**
@@ -109,7 +109,9 @@ export function getWebAppBaseUrl(settings?: AppSettings): string {
   if (typeof window !== 'undefined' && /^https?:\/\//i.test(window.location.origin) && !window.location.origin.includes('localhost')) {
     return `${window.location.origin}${window.location.pathname}`.replace(/\/+$/, '');
   }
-  return 'https://lembayung-so1.pages.dev';
+  return getAppEnvironment() === 'testing'
+    ? 'https://lembayung-test.pages.dev'
+    : 'https://lembayung-so1.pages.dev';
 }
 
 /**
