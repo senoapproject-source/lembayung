@@ -310,6 +310,38 @@ export async function deleteMenuFromSupabase(
 }
 
 /**
+ * Hapus 1 bahan baku dari Supabase agar sinkron di semua perangkat
+ */
+export async function deleteIngredientFromSupabase(
+  ingredientId: string
+): Promise<{ success: boolean; error?: string }> {
+  if (typeof navigator !== 'undefined' && !navigator.onLine) {
+    return { success: false, error: 'Offline' };
+  }
+  activeCloudMutations += 1;
+  try {
+    const settings = await db.settings.get('global');
+    const cfg = getSupabaseConfig(settings);
+    const client = getSupabaseClient(settings);
+
+    const { error } = await client
+      .from('ingredients')
+      .delete()
+      .eq('outlet_id', cfg.outletId)
+      .eq('id', ingredientId);
+    if (error) return { success: false, error: error.message };
+    return { success: true };
+  } catch (err) {
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : 'Gagal menghapus bahan baku di Cloud',
+    };
+  } finally {
+    activeCloudMutations = Math.max(0, activeCloudMutations - 1);
+  }
+}
+
+/**
  * Hapus satu user tertentu dari tabel public.users di Supabase (untuk outlet aktif)
  */
 export async function deleteUserFromSupabase(
@@ -440,6 +472,8 @@ async function pushAllLocalToSupabaseInternal(includeUsers: boolean): Promise<{
       } else if (tbl === 'menus') {
         await client.from('menu_hpp_history').delete().eq('outlet_id', outletId).eq('menu_id', delItem.entityId);
         await client.from('menus').delete().eq('outlet_id', outletId).eq('id', delItem.entityId);
+      } else if (tbl === 'ingredients') {
+        await client.from('ingredients').delete().eq('outlet_id', outletId).eq('id', delItem.entityId);
       }
     }
 
@@ -1066,6 +1100,7 @@ export async function pullAllFromSupabase(overrideOutletId?: string): Promise<{
         await db.users.bulkPut(mappedUsers);
       }
       if (mappedCats.length) await db.expenseCategories.bulkPut(mappedCats);
+      await db.ingredients.clear();
       if (mappedIngs.length) await db.ingredients.bulkPut(mappedIngs);
       if (mappedPurchases.length) await db.purchases.bulkPut(mappedPurchases);
       if (mappedRecipes.length) await db.recipes.bulkPut(mappedRecipes);

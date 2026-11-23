@@ -2,7 +2,14 @@ import React, { useMemo, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { v4 as uuidv4 } from 'uuid';
 import { db } from '../db/database';
-import { cancelPurchase, enqueueSync, recordPurchase } from '../db/actions';
+import {
+  addAuditLog,
+  cancelPurchase,
+  enqueueSync,
+  recalculateAllPricingAndHpp,
+  recordPurchase,
+} from '../db/actions';
+import { deleteIngredientFromSupabase } from '../services/syncService';
 import {
   formatRibuanInput,
   formatRupiah,
@@ -11,7 +18,7 @@ import {
 } from '../lib/calculations';
 import { CustomSelect } from '../components/CustomSelect';
 import type { BaseUnit, Ingredient, User } from '../types/models';
-import { Plus, Trash2, X } from 'lucide-react';
+import { Edit3, Plus, Trash2, X } from 'lucide-react';
 
 interface IngredientsPageProps {
   user: User;
@@ -21,10 +28,15 @@ export const IngredientsPage: React.FC<IngredientsPageProps> = ({ user }) => {
   const settings = useLiveQuery(() => db.settings.get('global'));
   const ingredients = useLiveQuery(() => db.ingredients.toArray()) ?? [];
   const purchases = useLiveQuery(() => db.purchases.toArray()) ?? [];
+  const recipes = useLiveQuery(() => db.recipes.toArray()) ?? [];
+
+  const isManagerOrOwner = user.role === 'owner' || user.role === 'manager';
 
   const [selectedIngId, setSelectedIngId] = useState<string>('ing-telur');
   const [showPurchaseModal, setShowPurchaseModal] = useState(false);
   const [showAddIngredientModal, setShowAddIngredientModal] = useState(false);
+  const [editingIngredient, setEditingIngredient] = useState<Ingredient | null>(null);
+  const [ingModalError, setIngModalError] = useState('');
 
   // Form pembelian
   const [pIngId, setPIngId] = useState('');
@@ -100,23 +112,118 @@ export const IngredientsPage: React.FC<IngredientsPageProps> = ({ user }) => {
     setShowPurchaseModal(false);
   };
 
-  const handleAddIngredient = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newNama.trim()) return;
-    const id = uuidv4();
-    await db.ingredients.add({
-      id,
-      nama: newNama.trim(),
-      satuanDasar: newSatuanDasar,
-      labelSatuanDasar: newLabelSatuan.trim() || newSatuanDasar,
-      hargaAktif: 0,
-      active: true,
-      updatedAt: new Date().toISOString(),
-    });
-    await enqueueSync('master', id, 'upsert', { id, nama: newNama.trim() });
-    setSelectedIngId(id);
+  const normalizeIngName = (s: string) => s.trim().replace(/\s+/g, ' ').toLowerCase();
+
+  const openAddIngredientModal = () => {
+    setEditingIngredient(null);
     setNewNama('');
+    setNewSatuanDasar('gram');
+    setNewLabelSatuan('gram');
+    setIngModalError('');
+    setShowAddIngredientModal(true);
+  };
+
+  const openEditIngredientModal = (ing: Ingredient, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setEditingIngredient(ing);
+    setNewNama(ing.nama);
+    setNewSatuanDasar(ing.satuanDasar);
+    setNewLabelSatuan(ing.labelSatuanDasar);
+    setIngModalError('');
+    setShowAddIngredientModal(true);
+  };
+
+  const handleSaveIngredient = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIngModalError('');
+    const cleanNama = newNama.trim().replace(/\s+/g, ' ');
+    if (!cleanNama) return;
+
+    // Cegah nama bahan kembar (case-insensitive, mis. "Telor" vs "telor")
+    const duplicate = activeIngredients.find(
+      (i) =>
+        i.id !== editingIngredient?.id &&
+        normalizeIngName(i.nama) === normalizeIngName(cleanNama)
+    );
+    if (duplicate) {
+      setIngModalError(
+        `Bahan baku "${duplicate.nama}" sudah terdaftar (satuan: ${duplicate.labelSatuanDasar}). Gunakan bahan yang sudah ada atau beri nama lebih spesifik.`
+      );
+      return;
+    }
+
+    const nowIso = new Date().toISOString();
+    const cleanLabel = newLabelSatuan.trim() || newSatuanDasar;
+
+    if (editingIngredient) {
+      const hasPurchases = (purchaseCountMap.get(editingIngredient.id) ?? 0) > 0;
+      const usedInRecipe = recipes.some((r) =>
+        r.items.some((it) => it.type === 'ingredient' && it.refId === editingIngredient.id)
+      );
+      const finalSatuanDasar =
+        hasPurchases || usedInRecipe ? editingIngredient.satuanDasar : newSatuanDasar;
+
+      const updated: Ingredient = {
+        ...editingIngredient,
+        nama: cleanNama,
+        satuanDasar: finalSatuanDasar,
+        labelSatuanDasar: cleanLabel,
+        updatedAt: nowIso,
+      };
+      await db.ingredients.put(updated);
+      await addAuditLog(user, 'UBAH_BAHAN', cleanNama, `Satuan: ${cleanLabel}`);
+      await enqueueSync('master', updated.id, 'upsert', updated);
+      setSelectedIngId(updated.id);
+    } else {
+      const id = uuidv4();
+      const created: Ingredient = {
+        id,
+        nama: cleanNama,
+        satuanDasar: newSatuanDasar,
+        labelSatuanDasar: cleanLabel,
+        hargaAktif: 0,
+        active: true,
+        updatedAt: nowIso,
+      };
+      await db.ingredients.add(created);
+      await addAuditLog(user, 'TAMBAH_BAHAN', cleanNama, `Satuan: ${cleanLabel}`);
+      await enqueueSync('master', id, 'upsert', created);
+      setSelectedIngId(id);
+    }
+
+    setNewNama('');
+    setEditingIngredient(null);
     setShowAddIngredientModal(false);
+  };
+
+  const handleDeleteIngredient = async (ing: Ingredient, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    // Cek apakah bahan sedang dipakai di resep mana pun
+    const usedByRecipes = recipes.filter((r) =>
+      r.items.some((it) => it.type === 'ingredient' && it.refId === ing.id)
+    );
+    if (usedByRecipes.length > 0) {
+      const recipeNames = usedByRecipes.map((r) => r.nama).join(', ');
+      alert(
+        `Bahan "${ing.nama}" tidak dapat dihapus karena sedang digunakan pada resep:\n\n• ${recipeNames}\n\nSilakan hapus atau ganti bahan ini di resep tersebut terlebih dahulu.`
+      );
+      return;
+    }
+
+    const cnt = purchaseCountMap.get(ing.id) ?? 0;
+    const msg =
+      cnt > 0
+        ? `Hapus bahan baku "${ing.nama}"?\n\nBahan ini memiliki ${cnt} catatan pembelian namun tidak dipakai di resep mana pun.`
+        : `Hapus bahan baku "${ing.nama}" secara permanen?`;
+    if (!confirm(msg)) return;
+
+    await db.ingredients.delete(ing.id);
+    await addAuditLog(user, 'HAPUS_BAHAN', ing.nama, 'Bahan baku dihapus');
+    const cloudRes = await deleteIngredientFromSupabase(ing.id);
+    if (!cloudRes.success) {
+      await enqueueSync('master', ing.id, 'delete', { table: 'ingredients', id: ing.id });
+    }
+    await recalculateAllPricingAndHpp();
   };
 
   // Hitung titik SVG grafik tren harga (persis desain mockup)
@@ -152,10 +259,10 @@ export const IngredientsPage: React.FC<IngredientsPageProps> = ({ user }) => {
       <div className="flex items-center justify-between gap-2">
         <h1 className="text-[22px] font-bold">Bahan Baku</h1>
         <div className="flex items-center gap-2">
-          {user.role === 'owner' && (
+          {isManagerOrOwner && (
             <button
               type="button"
-              onClick={() => setShowAddIngredientModal(true)}
+              onClick={openAddIngredientModal}
               className="h-9 px-3 rounded-full border border-[#d6d3c8] bg-white text-xs font-medium text-[#1f1e1d] flex items-center gap-1"
             >
               <Plus size={14} /> Bahan
@@ -190,17 +297,16 @@ export const IngredientsPage: React.FC<IngredientsPageProps> = ({ user }) => {
             const isSelected = selectedIng?.id === ing.id;
             const cnt = purchaseCountMap.get(ing.id) ?? 0;
             return (
-              <button
+              <div
                 key={ing.id}
-                type="button"
                 onClick={() => setSelectedIngId(ing.id)}
-                className={`w-full text-left px-3.5 py-3 flex justify-between items-center transition ${
+                className={`w-full text-left px-3.5 py-3 flex justify-between items-center gap-2 cursor-pointer transition ${
                   isSelected ? 'bg-[#f4f9f6]' : 'hover:bg-[#faf9f5]'
                 }`}
               >
-                <div>
-                  <div className="font-semibold text-sm flex items-center gap-2">
-                    {ing.nama}
+                <div className="min-w-0">
+                  <div className="font-semibold text-sm flex items-center gap-2 flex-wrap">
+                    <span className="truncate">{ing.nama}</span>
                     {ing.hargaAktif <= 0 && (
                       <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-[#fbeed9] text-[#7a4300]">
                         Belum ada harga
@@ -211,11 +317,33 @@ export const IngredientsPage: React.FC<IngredientsPageProps> = ({ user }) => {
                     Satuan dasar: {ing.labelSatuanDasar} · {cnt} pembelian
                   </div>
                 </div>
-                <div className="text-right">
-                  <div className="font-semibold text-sm">{formatRupiah(ing.hargaAktif)}</div>
-                  <div className="text-xs text-[#6b6a68]">per {ing.labelSatuanDasar}</div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <div className="text-right">
+                    <div className="font-semibold text-sm">{formatRupiah(ing.hargaAktif)}</div>
+                    <div className="text-xs text-[#6b6a68]">per {ing.labelSatuanDasar}</div>
+                  </div>
+                  {isManagerOrOwner && (
+                    <div className="flex items-center gap-1 pl-1 border-l border-[#eeece5]">
+                      <button
+                        type="button"
+                        title={`Edit ${ing.nama}`}
+                        onClick={(e) => openEditIngredientModal(ing, e)}
+                        className="p-1.5 rounded-lg text-[#1F7A5A] hover:bg-[#e4f1ea] transition"
+                      >
+                        <Edit3 size={14} />
+                      </button>
+                      <button
+                        type="button"
+                        title={`Hapus ${ing.nama}`}
+                        onClick={(e) => handleDeleteIngredient(ing, e)}
+                        className="p-1.5 rounded-lg text-[#9b1c12] hover:bg-[#fbe4e1] transition"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  )}
                 </div>
-              </button>
+              </div>
             );
           })}
         </div>
@@ -453,23 +581,34 @@ export const IngredientsPage: React.FC<IngredientsPageProps> = ({ user }) => {
         </div>
       )}
 
-      {/* Modal Tambah Bahan Baku Baru */}
+      {/* Modal Tambah / Edit Bahan Baku */}
       {showAddIngredientModal && (
         <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
           <div className="bg-white w-full max-w-[430px] rounded-2xl p-5 flex flex-col gap-3.5 shadow-xl">
             <div className="flex justify-between items-center">
-              <div className="text-base font-bold">Tambah Bahan Baku</div>
-              <button type="button" onClick={() => setShowAddIngredientModal(false)}>
+              <div className="text-base font-bold">
+                {editingIngredient ? `Edit Bahan: ${editingIngredient.nama}` : 'Tambah Bahan Baku'}
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setEditingIngredient(null);
+                  setShowAddIngredientModal(false);
+                }}
+              >
                 <X size={20} className="text-[#6b6a68]" />
               </button>
             </div>
-            <form onSubmit={handleAddIngredient} className="flex flex-col gap-3">
+            <form onSubmit={handleSaveIngredient} className="flex flex-col gap-3">
               <div>
                 <label className="block text-xs font-medium text-[#4a4947] mb-1">Nama Bahan</label>
                 <input
                   type="text"
                   value={newNama}
-                  onChange={(e) => setNewNama(e.target.value)}
+                  onChange={(e) => {
+                    setNewNama(e.target.value);
+                    setIngModalError('');
+                  }}
                   placeholder="Contoh: Bawang Merah"
                   className="w-full h-11 border border-[#d6d3c8] rounded-[10px] px-3 text-sm"
                   required
@@ -482,6 +621,17 @@ export const IngredientsPage: React.FC<IngredientsPageProps> = ({ user }) => {
                     title="Pilih Jenis Satuan Dasar"
                     value={newSatuanDasar}
                     onChange={(v) => {
+                      if (
+                        editingIngredient &&
+                        ((purchaseCountMap.get(editingIngredient.id) ?? 0) > 0 ||
+                          recipes.some((r) =>
+                            r.items.some(
+                              (it) => it.type === 'ingredient' && it.refId === editingIngredient.id
+                            )
+                          ))
+                      ) {
+                        return;
+                      }
                       const val = v as BaseUnit;
                       setNewSatuanDasar(val);
                       setNewLabelSatuan(val === 'qty' ? 'pcs' : val);
@@ -505,11 +655,25 @@ export const IngredientsPage: React.FC<IngredientsPageProps> = ({ user }) => {
                   />
                 </div>
               </div>
+              {editingIngredient &&
+                ((purchaseCountMap.get(editingIngredient.id) ?? 0) > 0 ||
+                  recipes.some((r) =>
+                    r.items.some((it) => it.type === 'ingredient' && it.refId === editingIngredient.id)
+                  )) && (
+                  <div className="text-[11px] text-[#6b6a68] bg-[#faf9f5] border border-[#e2e0d8] rounded-lg px-3 py-2">
+                    Jenis satuan dasar dikunci karena bahan ini sudah memiliki riwayat pembelian atau dipakai di resep. Nama bahan &amp; label satuan tetap dapat diubah.
+                  </div>
+                )}
+              {ingModalError && (
+                <div className="text-xs font-medium bg-[#fbe4e1] text-[#9b1c12] px-3 py-2 rounded-lg">
+                  {ingModalError}
+                </div>
+              )}
               <button
                 type="submit"
                 className="mt-1 h-12 rounded-[10px] bg-[#1F7A5A] text-white font-semibold text-[15px]"
               >
-                Simpan Bahan
+                {editingIngredient ? 'Simpan Perubahan' : 'Simpan Bahan'}
               </button>
             </form>
           </div>
