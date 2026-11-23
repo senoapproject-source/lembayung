@@ -36,9 +36,17 @@ export const UpdatePromptModal: React.FC<UpdatePromptModalProps> = ({
           <div className="flex items-center gap-2.5">
             <CuaninLogo size={42} />
             <div>
-              <div className="flex items-center gap-1.5">
-                <span className="font-bold text-base text-[#1f1e1d]">Update Lembayung</span>
-                <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-[#e4f1ea] text-[#1F7A5A] flex items-center gap-1">
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className="font-bold text-base text-[#1f1e1d]">
+                  {info.forceUpdate ? 'Pembaruan Wajib' : 'Update Lembayung'}
+                </span>
+                <span
+                  className={`text-[11px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1 ${
+                    info.forceUpdate
+                      ? 'bg-[#fbe4e1] text-[#9b1c12]'
+                      : 'bg-[#e4f1ea] text-[#1F7A5A]'
+                  }`}
+                >
                   <Sparkles size={11} /> v{info.latestVersion}
                 </span>
               </div>
@@ -57,6 +65,12 @@ export const UpdatePromptModal: React.FC<UpdatePromptModalProps> = ({
             </button>
           )}
         </div>
+
+        {info.forceUpdate && (
+          <div className="bg-[#fef3c7] border border-[#f59e0b]/40 rounded-xl px-3.5 py-2.5 text-xs text-[#92400e] leading-relaxed">
+            Versi aplikasi di perangkat ini sudah terlalu lama. Mohon perbarui sekarang agar semua fitur dan sinkronisasi tetap berjalan normal.
+          </div>
+        )}
 
         <div className="bg-[#faf9f5] border border-[#e2e0d8] rounded-xl p-3.5 flex flex-col gap-1">
           <div className="text-xs font-semibold text-[#4a4947]">Apa yang baru:</div>

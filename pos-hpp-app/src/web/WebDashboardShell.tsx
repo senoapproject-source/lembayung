@@ -3,7 +3,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../db/database';
 import {
   getAppEnvironment,
-  getInstalledAppVersion,
+  getLatestAndroidDownloadInfo,
   syncWithCloud,
 } from '../services/syncService';
 import { fetchOwnerBranches, switchActiveBranch } from '../services/branchService';
@@ -23,6 +23,7 @@ import {
   BookOpen,
   Building2,
   Calendar,
+  Download,
   LogOut,
   Mail,
   Moon,
@@ -104,6 +105,13 @@ export const WebDashboardShell: React.FC<WebDashboardShellProps> = ({
 
   const [emailSending, setEmailSending] = useState(false);
   const [toastMsg, setToastMsg] = useState('');
+  const [androidDownloadUrl, setAndroidDownloadUrl] = useState('');
+
+  useEffect(() => {
+    getLatestAndroidDownloadInfo()
+      .then((res) => setAndroidDownloadUrl(res.downloadUrl))
+      .catch(() => {});
+  }, []);
 
   const activeOutletId = (settings?.outletId || '').trim().toUpperCase();
 
@@ -215,7 +223,7 @@ export const WebDashboardShell: React.FC<WebDashboardShellProps> = ({
                 )}
               </div>
               <div className="text-[11px] font-medium text-[#1F7A5A]">
-                Web Backoffice · v{getInstalledAppVersion()}
+                Web Backoffice
               </div>
             </div>
           </div>
@@ -339,8 +347,19 @@ export const WebDashboardShell: React.FC<WebDashboardShellProps> = ({
           </nav>
         </div>
 
-        {/* Footer Sidebar: User Info & Logout */}
+        {/* Footer Sidebar: Unduh Aplikasi Android + User Info & Logout */}
         <div className="p-3.5 border-t border-[#e2e0d8] bg-[#faf9f5] flex flex-col gap-2">
+          {androidDownloadUrl && (
+            <a
+              href={androidDownloadUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="w-full h-9 rounded-xl border border-[#d6d3c8] bg-white hover:bg-[#e4f1ea] hover:border-[#1F7A5A]/40 text-[#1f1e1d] text-xs font-semibold inline-flex items-center justify-center gap-2 transition"
+            >
+              <Download size={14} className="text-[#1F7A5A]" />
+              Unduh Aplikasi Android
+            </a>
+          )}
           <div className="flex items-center justify-between bg-white border border-[#e2e0d8] rounded-xl p-2.5 gap-2">
             <div className="flex items-center gap-2 min-w-0">
               <div className="w-8 h-8 rounded-full bg-[#e4f1ea] text-[#1F7A5A] flex items-center justify-center font-bold text-xs shrink-0">

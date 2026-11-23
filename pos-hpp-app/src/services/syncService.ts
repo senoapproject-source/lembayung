@@ -170,6 +170,52 @@ export async function checkForAppUpdate(): Promise<AppUpdateInfo | null> {
   }
 }
 
+export interface AndroidDownloadInfo {
+  downloadUrl: string;
+  latestVersion: string;
+}
+
+/**
+ * Ambil tautan unduhan aplikasi Android terbaru secara otomatis dari tabel app_versions
+ * dengan fallback alias tetap (Lembayung-latest.apk / Lembayung-testing-latest.apk).
+ */
+export async function getLatestAndroidDownloadInfo(): Promise<AndroidDownloadInfo> {
+  const env = getAppEnvironment();
+  const baseUrl = String(import.meta.env.VITE_SUPABASE_URL || '').trim().replace(/\/+$/, '');
+  const aliasFile = env === 'production' ? 'Lembayung-latest.apk' : 'Lembayung-testing-latest.apk';
+  const fallbackUrl = baseUrl
+    ? `${baseUrl}/storage/v1/object/public/cuanin-updates/${aliasFile}`
+    : '';
+  const fallbackVersion = getInstalledAppVersion();
+
+  if (typeof navigator !== 'undefined' && !navigator.onLine) {
+    return { downloadUrl: fallbackUrl, latestVersion: fallbackVersion };
+  }
+
+  try {
+    const settings = await db.settings.get('global');
+    const client = getSupabaseClient(settings);
+    const { data, error } = await client
+      .from('app_versions')
+      .select('latest_version, download_url')
+      .eq('id', 'android')
+      .maybeSingle();
+
+    if (error || !data) {
+      return { downloadUrl: fallbackUrl, latestVersion: fallbackVersion };
+    }
+
+    const dbUrl = String(data.download_url || '').trim();
+    const isApkUrl = dbUrl && !dbUrl.includes('.zip');
+    return {
+      downloadUrl: isApkUrl ? dbUrl : fallbackUrl,
+      latestVersion: String(data.latest_version || fallbackVersion).trim(),
+    };
+  } catch {
+    return { downloadUrl: fallbackUrl, latestVersion: fallbackVersion };
+  }
+}
+
 const FALLBACK_SUPABASE_URL = '';
 const FALLBACK_SUPABASE_ANON_KEY = '';
 

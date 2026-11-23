@@ -1,7 +1,10 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { db, hashPassword } from '../db/database';
 import { generateOutletCode, registerNewBusiness } from '../db/actions';
-import { getInstalledAppVersion, pullAllFromSupabase } from '../services/syncService';
+import {
+  getLatestAndroidDownloadInfo,
+  pullAllFromSupabase,
+} from '../services/syncService';
 import {
   confirmOwnerForgotPassword,
   lookupOwnerOutletIdInCloud,
@@ -24,6 +27,7 @@ import {
   BarChart3,
   Building2,
   Calculator,
+  Download,
   Eye,
   EyeOff,
   Lock,
@@ -66,6 +70,13 @@ export const WebLoginPage: React.FC<WebLoginPageProps> = ({ onLoginSuccess }) =>
   const [error, setError] = useState('');
   const [info, setInfo] = useState('');
   const [loading, setLoading] = useState(false);
+  const [androidDownloadUrl, setAndroidDownloadUrl] = useState('');
+
+  useEffect(() => {
+    getLatestAndroidDownloadInfo()
+      .then((res) => setAndroidDownloadUrl(res.downloadUrl))
+      .catch(() => {});
+  }, []);
 
   const handleWebLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -351,8 +362,8 @@ export const WebLoginPage: React.FC<WebLoginPageProps> = ({ onLoginSuccess }) =>
           </div>
         </div>
 
-        <div className="relative z-10 text-xs text-white/70 flex items-center justify-between">
-          <span>Lembayung Web Dashboard · v{getInstalledAppVersion()}</span>
+        <div className="relative z-10 text-xs text-white/70 flex items-center justify-between gap-3">
+          <span>Lembayung Web Backoffice</span>
           <span>Transaksi Kasir (POS) khusus di aplikasi Android</span>
         </div>
       </div>
@@ -775,6 +786,19 @@ export const WebLoginPage: React.FC<WebLoginPageProps> = ({ onLoginSuccess }) =>
               </>
             )}
           </div>
+
+          {/* Tombol Unduh Aplikasi Kasir Android */}
+          {androidDownloadUrl && (
+            <a
+              href={androidDownloadUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="w-full h-11 rounded-xl border border-[#d6d3c8] bg-white hover:bg-[#faf9f5] hover:border-[#1F7A5A] text-[#1f1e1d] text-xs font-semibold inline-flex items-center justify-center gap-2 transition"
+            >
+              <Download size={15} className="text-[#1F7A5A]" />
+              Unduh Aplikasi Kasir Android
+            </a>
+          )}
         </div>
       </div>
     </div>

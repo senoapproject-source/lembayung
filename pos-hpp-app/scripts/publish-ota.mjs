@@ -16,7 +16,29 @@ const DIST_DIR = path.join(ROOT_DIR, 'dist');
 
 const isProdMode = process.argv.includes('--prod');
 const skipSyncTesting = process.argv.includes('--no-sync-testing');
-const positionalArgs = process.argv.slice(2).filter((arg) => !arg.startsWith('--'));
+const forceUpdateFlag = process.argv.includes('--force');
+
+function getFlagValue(flagName) {
+  const idx = process.argv.indexOf(flagName);
+  if (idx !== -1 && process.argv[idx + 1] && !process.argv[idx + 1].startsWith('--')) {
+    return process.argv[idx + 1].trim();
+  }
+  const prefix = `${flagName}=`;
+  const found = process.argv.find((a) => a.startsWith(prefix));
+  return found ? found.slice(prefix.length).trim() : null;
+}
+
+const customMinVersion = getFlagValue('--min');
+const positionalArgs = [];
+for (let i = 2; i < process.argv.length; i++) {
+  const arg = process.argv[i];
+  if (arg === '--min') {
+    i += 1; // skip value
+    continue;
+  }
+  if (arg.startsWith('--')) continue;
+  positionalArgs.push(arg);
+}
 
 function readSupabaseConfig(mode) {
   const envFile = path.join(ROOT_DIR, mode === 'production' ? '.env.production' : '.env.testing');
@@ -89,6 +111,33 @@ function toTestingBaseVersion(prodVer) {
   return `${major}.${minor}.0`;
 }
 
+/**
+ * Hitung min_required_version otomatis agar 2 versi terakhir tetap bisa dipakai
+ * tanpa paksaan (opsional), sedangkan versi di bawah 2 versi terakhir kena Update Wajib.
+ * - Production (2 digit): latest v1.4 -> min_required v1.3 (v1.4 & v1.3 aman, v1.2 ke bawah wajib update)
+ * - Testing (3 digit):    latest v1.4.3 -> min_required v1.4.2 (v1.4.3 & v1.4.2 aman, v1.4.1 ke bawah wajib update)
+ *                         latest v1.4.0 -> min_required v1.3.0 (v1.4.0 & v1.3.x aman, v1.2.x ke bawah wajib update)
+ */
+function computeMinRequiredVersion(version, mode) {
+  const parts = String(version || '1.0')
+    .replace(/^v/i, '')
+    .split('.')
+    .map((n) => parseInt(n, 10) || 0);
+  const major = parts[0] ?? 1;
+  const minor = parts[1] ?? 0;
+  const patch = parts[2] ?? 0;
+
+  if (mode === 'production') {
+    if (minor > 0) return `${major}.${minor - 1}`;
+    return `${major}.0`;
+  }
+
+  // Testing (3 digit)
+  if (patch > 0) return `${major}.${minor}.${patch - 1}`;
+  if (minor > 0) return `${major}.${minor - 1}.0`;
+  return `${major}.0.0`;
+}
+
 function readCodeAppVersion(mode) {
   let codeAppVer = mode === 'production' ? '1.0' : '1.0.0';
   const syncPath = path.join(ROOT_DIR, 'src', 'services', 'syncService.ts');
@@ -150,16 +199,20 @@ async function publishTarget({ mode, version, notes, currentRow }) {
     existingRow = data;
   }
 
-  console.log(`📝 [${label} 4/5] Memperbarui tabel app_versions (${label}) ke v${version}...`);
+  const minRequiredVersion = customMinVersion || computeMinRequiredVersion(version, mode);
+
+  console.log(
+    `📝 [${label} 4/5] Memperbarui tabel app_versions (${label}) ke v${version} (min_required: v${minRequiredVersion}${forceUpdateFlag ? ', FORCE ALL' : ''})...`
+  );
   const { error: dbErr } = await sb.from('app_versions').upsert(
     {
       id: 'android',
       latest_version: version,
-      min_required_version: existingRow?.min_required_version || '1.0.0',
+      min_required_version: minRequiredVersion,
       download_url: existingRow?.download_url || bundleZipUrl,
       bundle_zip_url: bundleZipUrl,
       release_notes: notes,
-      force_update: false,
+      force_update: forceUpdateFlag,
       updated_at: new Date().toISOString(),
     },
     { onConflict: 'id' }
