@@ -132,26 +132,20 @@ export const PublicReceiptView: React.FC<PublicReceiptViewProps> = ({
               {receipt.f}
             </div>
           )}
+          <div className="text-center text-[10px] font-medium text-[#9a9893] pt-1">
+            Powered by Lembayung POS
+          </div>
         </div>
 
-        {/* Tombol Cetak / Kembali */}
-        <div className="flex gap-2 print:hidden">
+        {/* Tombol Cetak / Simpan PDF (Khusus Halaman Struk Pelanggan) */}
+        <div className="flex print:hidden">
           <button
             type="button"
             onClick={() => window.print()}
-            className="flex-1 h-11 rounded-xl border border-[#d6d3c8] bg-white text-xs font-semibold flex items-center justify-center gap-1.5"
+            className="w-full h-11 rounded-xl border border-[#d6d3c8] bg-white hover:bg-[#faf9f5] text-xs font-semibold text-[#1f1e1d] flex items-center justify-center gap-1.5"
           >
             <Printer size={15} /> Cetak / Simpan PDF
           </button>
-          {onCloseToApp && (
-            <button
-              type="button"
-              onClick={onCloseToApp}
-              className="flex-1 h-11 rounded-xl bg-[#1F7A5A] text-white text-xs font-semibold"
-            >
-              Buka Aplikasi POS
-            </button>
-          )}
         </div>
       </div>
     </div>
