@@ -1,6 +1,6 @@
 // Entitas Utama sesuai FRD v1.0 Bab 5
 
-export type UserRole = 'owner' | 'kasir';
+export type UserRole = 'owner' | 'manager' | 'kasir';
 
 export interface User {
   id: string;
@@ -229,6 +229,21 @@ export interface AppSettings {
   supabaseUrl?: string;
   supabaseAnonKey?: string;
   outletId?: string;
+  ownerEmail?: string; // Email utama Owner pemilik grup bisnis (multi-cabang)
+  parentOutletId?: string; // ID outlet pusat jika merupakan cabang baru
+  namaCabang?: string; // Nama cabang, misal: "Pusat", "Cabang Sudirman"
+}
+
+export interface BranchInfo {
+  outletId: string;
+  namaUsaha: string;
+  namaCabang: string;
+  alamatUsaha: string;
+  teleponUsaha: string;
+  ownerEmail?: string;
+  parentOutletId?: string;
+  logoUsaha?: string;
+  updatedAt: string;
 }
 
 export interface AuditLog {

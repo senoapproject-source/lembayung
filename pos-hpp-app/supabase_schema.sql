@@ -7,10 +7,14 @@
 -- 2. Copy-paste seluruh isi file ini lalu klik tombol "Run"
 -- ============================================================================
 
--- 1. TABEL OUTLETS (PENGATURAN & PROFIL USAHA PER MERCHANT)
+-- 1. TABEL OUTLETS (PENGATURAN & PROFIL USAHA PER MERCHANT / MULTI-CABANG)
 CREATE TABLE IF NOT EXISTS public.outlets (
   outlet_id TEXT PRIMARY KEY,
   nama_usaha TEXT NOT NULL,
+  nama_cabang TEXT DEFAULT 'Pusat',
+  owner_email TEXT,
+  parent_outlet_id TEXT,
+  logo_usaha TEXT,
   alamat_usaha TEXT NOT NULL DEFAULT '-',
   telepon_usaha TEXT NOT NULL DEFAULT '',
   struk_header TEXT,
@@ -28,6 +32,12 @@ CREATE TABLE IF NOT EXISTS public.outlets (
   default_kasir_record_expense BOOLEAN NOT NULL DEFAULT true,
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- Upgrade otomatis kolom multi-cabang & logo struk web jika tabel outlets sudah ada sebelumnya
+ALTER TABLE public.outlets ADD COLUMN IF NOT EXISTS nama_cabang TEXT DEFAULT 'Pusat';
+ALTER TABLE public.outlets ADD COLUMN IF NOT EXISTS owner_email TEXT;
+ALTER TABLE public.outlets ADD COLUMN IF NOT EXISTS parent_outlet_id TEXT;
+ALTER TABLE public.outlets ADD COLUMN IF NOT EXISTS logo_usaha TEXT;
 
 -- 2. TABEL USERS (PENGGUNA: OWNER & KASIR)
 CREATE TABLE IF NOT EXISTS public.users (

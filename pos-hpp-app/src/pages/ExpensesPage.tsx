@@ -16,7 +16,7 @@ interface ExpensesPageProps {
 }
 
 export const ExpensesPage: React.FC<ExpensesPageProps> = ({ user, activeShift, onBack }) => {
-  const isOwner = user.role === 'owner';
+  const isOwner = user.role === 'owner' || user.role === 'manager';
   const categories = useLiveQuery(() => db.expenseCategories.toArray()) ?? [];
   const expenses = useLiveQuery(() => db.expenses.toArray()) ?? [];
 

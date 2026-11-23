@@ -1,11 +1,11 @@
-import React, { useEffect, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Capacitor } from '@capacitor/core';
 import { formatJam, formatRupiah, formatTanggalLengkap } from '../lib/calculations';
 import {
+  buildWebReceiptUrl,
   buildWhatsAppReceiptText,
   buildWhatsAppUrl,
   generateReceiptPngBlob,
-  uploadReceiptImageToSupabase,
 } from '../lib/receipt';
 import type { AppSettings, Transaction } from '../types/models';
 import {
@@ -13,7 +13,6 @@ import {
   Copy,
   Download,
   ExternalLink,
-  Loader2,
   MessageCircle,
   Share2,
   X,
@@ -33,57 +32,22 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
   const [waNumber, setWaNumber] = useState(tx.noWaPelanggan || '');
   const [copiedLink, setCopiedLink] = useState(false);
 
-  // Link Struk PNG langsung di Supabase Storage (Tanpa hosting tambahan)
-  const [cloudReceiptUrl, setCloudReceiptUrl] = useState<string>('');
-  const [uploadingLink, setUploadingLink] = useState<boolean>(false);
-  const [uploadErr, setUploadErr] = useState<string>('');
-
   const showKasir = settings?.strukTampilkanKasir ?? true;
   const showNotes = settings?.strukTampilkanCatatanItem ?? true;
   const showPhone = settings?.strukTampilkanWaUsaha ?? true;
   const footerText = settings?.strukFooter || 'Terima kasih!';
 
-  // Otomatis generate & upload Gambar Struk PNG ke Supabase Storage saat modal dibuka (jika online)
-  useEffect(() => {
-    let active = true;
-    const autoUpload = async () => {
-      if (!navigator.onLine) return;
-      setUploadingLink(true);
-      setUploadErr('');
-      const res = await uploadReceiptImageToSupabase(tx, settings);
-      if (!active) return;
-      setUploadingLink(false);
-      if (res.success && res.publicUrl) {
-        setCloudReceiptUrl(res.publicUrl);
-      } else if (res.error) {
-        setUploadErr(res.error);
-      }
-    };
-    autoUpload();
-    return () => {
-      active = false;
-    };
-  }, [tx.id]);
+  // Link Struk Digital via Website (0 KB Supabase Storage!)
+  const webReceiptUrl = useMemo(() => buildWebReceiptUrl(tx, settings), [tx, settings]);
 
-  const handleSendWhatsApp = async () => {
-    let finalUrl = cloudReceiptUrl;
-    if (!finalUrl && navigator.onLine && !uploadingLink) {
-      setUploadingLink(true);
-      const res = await uploadReceiptImageToSupabase(tx, settings);
-      setUploadingLink(false);
-      if (res.success && res.publicUrl) {
-        finalUrl = res.publicUrl;
-        setCloudReceiptUrl(res.publicUrl);
-      }
-    }
-    const message = buildWhatsAppReceiptText(tx, settings, true, finalUrl || undefined);
+  const handleSendWhatsApp = () => {
+    const message = buildWhatsAppReceiptText(tx, settings, true, webReceiptUrl);
     const url = buildWhatsAppUrl(waNumber, message);
     window.open(url, '_blank', 'noopener,noreferrer');
   };
 
   const handleCopyLink = async () => {
-    if (!cloudReceiptUrl) return;
-    await navigator.clipboard?.writeText(cloudReceiptUrl);
+    await navigator.clipboard?.writeText(webReceiptUrl);
     setCopiedLink(true);
     setTimeout(() => setCopiedLink(false), 2500);
   };
@@ -91,33 +55,13 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
   const handleSaveReceipt = async () => {
     const fileName = `struk-${tx.nomorStruk.replace(/[^a-zA-Z0-9]/g, '')}.png`;
 
-    // Di APK Android (WebView), blob download diblokir oleh sistem Android.
-    // Solusi paten: gunakan parameter ?download= pada URL Supabase Storage agar langsung terunduh ke HP!
+    // Di APK Android, buka halaman struk website agar pelanggan/kasir bisa cetak atau simpan langsung
     if (Capacitor.isNativePlatform()) {
-      let targetUrl = cloudReceiptUrl;
-      if (!targetUrl) {
-        if (!navigator.onLine) {
-          alert('Perangkat sedang offline. Sambungkan internet sebentar untuk mengunduh gambar struk.');
-          return;
-        }
-        setUploadingLink(true);
-        const res = await uploadReceiptImageToSupabase(tx, settings);
-        setUploadingLink(false);
-        if (res.success && res.publicUrl) {
-          targetUrl = res.publicUrl;
-          setCloudReceiptUrl(res.publicUrl);
-        } else {
-          alert(res.error || 'Gagal menyiapkan file struk untuk diunduh.');
-          return;
-        }
-      }
-      const sep = targetUrl.includes('?') ? '&' : '?';
-      const downloadUrl = `${targetUrl}${sep}download=${encodeURIComponent(fileName)}`;
-      window.open(downloadUrl, '_blank', 'noopener,noreferrer');
+      window.open(webReceiptUrl, '_blank', 'noopener,noreferrer');
       return;
     }
 
-    // Di browser web biasa, unduh langsung dari Canvas Blob
+    // Di browser web, unduh PNG langsung dari Canvas Blob (0 KB server storage)
     try {
       const blob = await generateReceiptPngBlob(tx, settings);
       const url = URL.createObjectURL(blob);
@@ -132,13 +76,13 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
   };
 
   const handleNativeShare = async () => {
-    const message = buildWhatsAppReceiptText(tx, settings, true, cloudReceiptUrl || undefined);
+    const message = buildWhatsAppReceiptText(tx, settings, true, webReceiptUrl);
     if (navigator.share) {
       try {
         await navigator.share({
           title: `Struk ${tx.nomorStruk}`,
           text: message,
-          url: cloudReceiptUrl || undefined,
+          url: webReceiptUrl,
         });
         return;
       } catch {
@@ -254,80 +198,57 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
             />
             <button
               type="button"
-              disabled={uploadingLink}
               onClick={handleSendWhatsApp}
-              className="h-10 px-3.5 rounded-lg bg-[#1F7A5A] hover:bg-[#15563f] text-white font-semibold text-xs flex items-center gap-1.5 shrink-0 disabled:opacity-60"
+              className="h-10 px-3.5 rounded-lg bg-[#1F7A5A] hover:bg-[#15563f] text-white font-semibold text-xs flex items-center gap-1.5 shrink-0"
             >
-              {uploadingLink ? (
-                <Loader2 size={14} className="animate-spin" />
-              ) : (
-                <MessageCircle size={15} />
-              )}
+              <MessageCircle size={15} />
               Kirim WA
             </button>
           </div>
           <div className="text-[11px] text-[#6b6a68]">
-            {cloudReceiptUrl
-              ? 'Link gambar struk otomatis ikut terkirim di pesan WhatsApp.'
-              : 'Isi nomor WA pelanggan untuk langsung chat, atau kosongkan untuk memilih kontak.'}
+            Link struk digital website otomatis ikut terkirim di pesan WhatsApp.
           </div>
         </div>
 
-        {/* Link Struk Digital (Supabase Storage PNG) */}
+        {/* Link Struk Digital (Website — Tanpa Beban Storage) */}
         <div className="flex flex-col gap-1.5">
           <div className="flex justify-between items-center">
             <span className="text-xs font-medium text-[#4a4947]">
-              Link Gambar Struk Digital (Online)
+              Link Struk Digital Website
             </span>
-            {uploadingLink && (
-              <span className="text-[11px] text-[#1F7A5A] flex items-center gap-1">
-                <Loader2 size={11} className="animate-spin" /> Membuat link...
-              </span>
-            )}
           </div>
 
-          {cloudReceiptUrl ? (
-            <div className="flex gap-1.5">
-              <input
-                type="text"
-                readOnly
-                value={cloudReceiptUrl}
-                className="flex-1 h-9 rounded-lg border border-[#d6d3c8] bg-[#faf9f5] px-2.5 text-[11px] text-[#6b6a68]"
-              />
-              <button
-                type="button"
-                onClick={handleCopyLink}
-                className="h-9 px-3 rounded-lg border border-[#1F7A5A] text-[#1F7A5A] text-xs font-semibold flex items-center gap-1 shrink-0"
-              >
-                <Copy size={13} /> {copiedLink ? 'Tersalin!' : 'Salin'}
-              </button>
-              <a
-                href={cloudReceiptUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                title="Buka gambar struk"
-                className="h-9 px-2.5 rounded-lg border border-[#d6d3c8] text-[#4a4947] flex items-center justify-center"
-              >
-                <ExternalLink size={14} />
-              </a>
-            </div>
-          ) : (
-            <div className="text-[11px] text-[#6b6a68] bg-[#faf9f5] border border-[#e2e0d8] rounded-lg px-3 py-2">
-              {uploadErr
-                ? uploadErr
-                : !navigator.onLine
-                ? 'Sedang offline — kirim WA tetap jalan menggunakan teks struk lengkap.'
-                : 'Menyiapkan link gambar struk...'}
-            </div>
-          )}
+          <div className="flex gap-1.5">
+            <input
+              type="text"
+              readOnly
+              value={webReceiptUrl}
+              className="flex-1 h-9 rounded-lg border border-[#d6d3c8] bg-[#faf9f5] px-2.5 text-[11px] text-[#6b6a68]"
+            />
+            <button
+              type="button"
+              onClick={handleCopyLink}
+              className="h-9 px-3 rounded-lg border border-[#1F7A5A] text-[#1F7A5A] text-xs font-semibold flex items-center gap-1 shrink-0"
+            >
+              <Copy size={13} /> {copiedLink ? 'Tersalin!' : 'Salin'}
+            </button>
+            <a
+              href={webReceiptUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              title="Buka struk di browser"
+              className="h-9 px-2.5 rounded-lg border border-[#d6d3c8] text-[#4a4947] flex items-center justify-center"
+            >
+              <ExternalLink size={14} />
+            </a>
+          </div>
         </div>
 
         <div className="grid grid-cols-3 gap-2 pt-1">
           <button
             type="button"
-            disabled={uploadingLink}
             onClick={handleSaveReceipt}
-            className="h-11 rounded-[10px] border border-[#d6d3c8] text-[#1f1e1d] font-semibold text-xs flex items-center justify-center gap-1 disabled:opacity-60"
+            className="h-11 rounded-[10px] border border-[#d6d3c8] text-[#1f1e1d] font-semibold text-xs flex items-center justify-center gap-1"
           >
             <Download size={14} /> Simpan Struk
           </button>

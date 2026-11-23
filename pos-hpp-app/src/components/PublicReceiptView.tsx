@@ -18,12 +18,23 @@ export const PublicReceiptView: React.FC<PublicReceiptViewProps> = ({
     <div className="min-h-screen bg-[#ece9e0]/70 flex justify-center py-6 px-4">
       <div className="w-full max-w-[380px] flex flex-col gap-4">
         <div className="bg-white border border-[#e2e0d8] rounded-2xl p-5 shadow-sm flex flex-col gap-3.5">
-          {/* Status badge */}
+          {/* Status badge + Logo usaha */}
           <div className="flex flex-col items-center text-center gap-1">
-            {isVoid ? (
+            {receipt.lg ? (
+              <img
+                src={receipt.lg}
+                alt={receipt.u}
+                className="max-h-16 max-w-[150px] object-contain rounded-lg mb-1"
+              />
+            ) : isVoid ? (
               <XCircle size={36} className="text-[#9b1c12]" />
             ) : (
               <CheckCircle2 size={36} className="text-[#1F7A5A]" />
+            )}
+            {isVoid && (
+              <span className="text-[11px] font-bold uppercase tracking-wider px-2.5 py-0.5 rounded-full bg-[#fbe4e1] text-[#9b1c12]">
+                TRANSAKSI DIBATALKAN (VOID)
+              </span>
             )}
             <div className="font-bold text-lg text-[#1f1e1d]">{receipt.u}</div>
             {receipt.h && <div className="text-xs italic text-[#6b6a68]">{receipt.h}</div>}

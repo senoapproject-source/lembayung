@@ -22,8 +22,14 @@ import {
   registerFcmPushForUser,
   unregisterFcmPushToken,
 } from './services/pushNotificationService';
-import { decodeReceiptFromHash, type PublicReceiptPayload } from './lib/receipt';
+import {
+  decodeReceiptFromHash,
+  fetchPublicReceiptFromQuery,
+  type PublicReceiptPayload,
+} from './lib/receipt';
 import { PublicReceiptView } from './components/PublicReceiptView';
+import { WebLoginPage } from './web/WebLoginPage';
+import { WebDashboardShell } from './web/WebDashboardShell';
 import { CuaninLogo } from './components/CuaninLogo';
 import { UpdatePromptModal } from './components/UpdatePromptModal';
 import { CloseShiftModal, OpenShiftScreen } from './components/CashierShiftModals';
@@ -77,8 +83,12 @@ export function App() {
   const [darkMode, setDarkMode] = useState<boolean>(
     () => localStorage.getItem(THEME_KEY) === 'dark'
   );
+  const isWebPortal = !Capacitor.isNativePlatform();
   const [publicReceipt, setPublicReceipt] = useState<PublicReceiptPayload | null>(() =>
     decodeReceiptFromHash(window.location.hash)
+  );
+  const [loadingQueryReceipt, setLoadingQueryReceipt] = useState<boolean>(() =>
+    Boolean(new URLSearchParams(window.location.search).get('s'))
   );
   const [updateInfo, setUpdateInfo] = useState<AppUpdateInfo | null>(null);
   const [updateDismissed, setUpdateDismissed] = useState<boolean>(false);
@@ -126,6 +136,7 @@ export function App() {
   const toggleDarkMode = () => setDarkMode((v) => !v);
 
   const checkAndNotifyUpdate = async () => {
+    if (isWebPortal) return;
     const info = await checkForAppUpdate();
     if (!info?.hasUpdate) return;
     const dismissedVer = sessionStorage.getItem('cuanin_dismissed_update_ver');
@@ -344,6 +355,14 @@ export function App() {
   }, [currentUser?.id]);
 
   useEffect(() => {
+    const queryToken = new URLSearchParams(window.location.search).get('s');
+    if (queryToken) {
+      fetchPublicReceiptFromQuery(window.location.search)
+        .then((res) => {
+          if (res) setPublicReceipt(res);
+        })
+        .finally(() => setLoadingQueryReceipt(false));
+    }
     const handleHashChange = () => {
       setPublicReceipt(decodeReceiptFromHash(window.location.hash));
     };
@@ -351,11 +370,22 @@ export function App() {
     return () => window.removeEventListener('hashchange', handleHashChange);
   }, []);
 
+  if (loadingQueryReceipt) {
+    return (
+      <div className="min-h-screen bg-[#faf9f5] flex items-center justify-center text-sm text-[#6b6a68]">
+        Memuat struk digital...
+      </div>
+    );
+  }
+
   if (publicReceipt) {
     return (
       <PublicReceiptView
         receipt={publicReceipt}
         onCloseToApp={() => {
+          if (window.location.search.includes('s=')) {
+            window.history.replaceState({}, '', window.location.pathname);
+          }
           window.location.hash = '';
           setPublicReceipt(null);
         }}
@@ -368,6 +398,26 @@ export function App() {
       <div className="min-h-screen bg-[#faf9f5] flex items-center justify-center text-sm text-[#6b6a68]">
         Menyiapkan aplikasi...
       </div>
+    );
+  }
+
+  // ============================================================================
+  // MODE WEBSITE BACKOFFICE (KHUSUS OWNER & MANAGER — TANPA MENU KASIR)
+  // ============================================================================
+  if (isWebPortal) {
+    if (!currentUser || !currentUser.active || currentUser.role === 'kasir') {
+      return <WebLoginPage onLoginSuccess={handleLogin} />;
+    }
+    return (
+      <WebDashboardShell
+        user={currentUser}
+        isOnline={isOnline}
+        isAutoSyncing={isAutoSyncing}
+        pendingSyncCount={pendingSyncCount}
+        darkMode={darkMode}
+        onToggleDarkMode={toggleDarkMode}
+        onLogout={handleFullLogout}
+      />
     );
   }
 
@@ -407,9 +457,10 @@ export function App() {
   }
 
   const isOwner = currentUser.role === 'owner';
+  const isManagerOrOwner = currentUser.role === 'owner' || currentUser.role === 'manager';
 
   // Khusus Kasir: wajib Buka Kasir (hitung & input uang modal awal) sebelum masuk ke halaman Kasir
-  if (!isOwner && !activeCashierShift) {
+  if (!isManagerOrOwner && !activeCashierShift) {
     return (
       <OpenShiftScreen
         user={currentUser}
@@ -421,7 +472,7 @@ export function App() {
   }
 
   const safeView: ActiveView = (() => {
-    if (isOwner) return activeView;
+    if (isManagerOrOwner) return activeView;
     if (activeView === 'kasir' || activeView === 'riwayat') return activeView;
     if (activeView === 'pengeluaran' && currentUser.canRecordExpense) return activeView;
     return 'kasir';
@@ -585,7 +636,7 @@ export function App() {
                   {currentUser.nama}
                 </div>
                 <div className="text-[10px] text-[#6b6a68]">
-                  {isOwner ? 'Owner' : 'Kasir'}
+                  {isOwner ? 'Owner' : currentUser.role === 'manager' ? 'Manager' : 'Kasir'}
                 </div>
               </div>
             </div>

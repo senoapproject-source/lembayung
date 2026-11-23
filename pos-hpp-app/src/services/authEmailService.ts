@@ -153,8 +153,8 @@ export async function sendPeriodicSummaryEmailToOwner(
 }
 
 /**
- * Cari outlet_id di Cloud berdasarkan username atau email Owner
- * agar Owner bisa login dari perangkat baru tanpa harus mengetik Kode Toko manual.
+ * Cari outlet_id di Cloud berdasarkan username atau email Owner/Manager
+ * agar Owner & Manager bisa login di Website / perangkat baru tanpa mengetik Kode Toko manual.
  */
 export async function lookupOwnerOutletIdInCloud(identifier: string): Promise<string | null> {
   if (typeof navigator !== 'undefined' && !navigator.onLine) return null;
@@ -166,7 +166,7 @@ export async function lookupOwnerOutletIdInCloud(identifier: string): Promise<st
     const { data, error } = await client
       .from('users')
       .select('outlet_id, username, email, role')
-      .eq('role', 'owner');
+      .in('role', ['owner', 'manager']);
     if (error || !Array.isArray(data)) return null;
     const found = data.find(
       (r: { username?: string; email?: string | null }) =>

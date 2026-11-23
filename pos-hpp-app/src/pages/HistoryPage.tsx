@@ -67,8 +67,8 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({ user, activeShift, onB
         <div>
           <h1 className="text-[22px] font-bold">Riwayat</h1>
           <div className="text-xs text-[#6b6a68]">
-            {user.role === 'owner'
-              ? 'Kasir: semua · hanya Owner yang bisa void'
+            {user.role === 'owner' || user.role === 'manager'
+              ? 'Kasir: semua · Owner & Manager dapat membatalkan (void) transaksi'
               : isKasirShiftMode && activeShift
               ? `Shift aktif ${user.nama} (sejak ${formatJam(activeShift.waktuBuka)}) · hanya transaksi shift ini`
               : `Riwayat transaksi ${user.nama}`}
@@ -174,7 +174,7 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({ user, activeShift, onB
                     >
                       <MessageCircle size={12} /> Struk &amp; WA
                     </button>
-                    {user.role === 'owner' && !isVoid && (
+                    {(user.role === 'owner' || user.role === 'manager') && !isVoid && (
                       <button
                         type="button"
                         onClick={() => {

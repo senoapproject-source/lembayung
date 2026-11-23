@@ -8,6 +8,7 @@ import type { AppSettings, Transaction } from '../types/models';
  */
 export interface PublicReceiptPayload {
   u: string; // nama usaha
+  lg?: string; // logo usaha (opsional, dari query DB)
   a: string; // alamat usaha
   p?: string; // telepon usaha
   h?: string; // header tagline
@@ -93,16 +94,115 @@ export function buildReceiptPayload(
 }
 
 /**
+ * Tentukan URL dasar Website Lembayung untuk link struk digital (0 KB Storage).
+ * Prioritas: Pengaturan strukBaseUrl -> env VITE_WEB_APP_URL -> origin web saat ini.
+ */
+export function getWebAppBaseUrl(settings?: AppSettings): string {
+  const custom = settings?.strukBaseUrl?.trim();
+  if (custom && /^https?:\/\//i.test(custom)) {
+    return custom.replace(/\/+$/, '');
+  }
+  const envUrl = (import.meta.env.VITE_WEB_APP_URL as string | undefined)?.trim();
+  if (envUrl && /^https?:\/\//i.test(envUrl)) {
+    return envUrl.replace(/\/+$/, '');
+  }
+  if (typeof window !== 'undefined' && /^https?:\/\//i.test(window.location.origin) && !window.location.origin.includes('localhost')) {
+    return `${window.location.origin}${window.location.pathname}`.replace(/\/+$/, '');
+  }
+  return 'https://lembayung.vercel.app';
+}
+
+/**
+ * Buat link struk digital Website (0 KB Supabase Storage!):
+ * - Jika online & memiliki outletId: pakai link pendek ?s=OUTLETID.TXID (langsung baca dari tabel transactions)
+ * - Jika offline: fallback otomatis ke #struk=BASE64 sehingga tetap bisa dibuka di HP pelanggan
+ */
+export function buildWebReceiptUrl(tx: Transaction, settings?: AppSettings): string {
+  const base = getWebAppBaseUrl(settings).replace(/#.*$/, '');
+  const outletId = (settings?.outletId || '').trim().toUpperCase();
+  if (outletId && (typeof navigator === 'undefined' || navigator.onLine)) {
+    return `${base}/?s=${encodeURIComponent(`${outletId}.${tx.id}`)}`;
+  }
+  const payload = buildReceiptPayload(tx, settings);
+  const encoded = toBase64Url(JSON.stringify(payload));
+  return `${base}/#struk=${encoded}`;
+}
+
+/**
+ * Ambil data struk digital dari query URL ?s=OUTLETID.TXID (dibuka pelanggan di Website)
+ */
+export async function fetchPublicReceiptFromQuery(
+  search: string
+): Promise<PublicReceiptPayload | null> {
+  try {
+    const params = new URLSearchParams(search);
+    const token = params.get('s')?.trim();
+    if (!token || !token.includes('.')) return null;
+    const dotIdx = token.indexOf('.');
+    const outletId = token.slice(0, dotIdx).trim().toUpperCase();
+    const txId = token.slice(dotIdx + 1).trim();
+    if (!outletId || !txId) return null;
+
+    const client = getSupabaseClient();
+    const [txRes, outletRes] = await Promise.all([
+      client
+        .from('transactions')
+        .select('*')
+        .eq('outlet_id', outletId)
+        .eq('id', txId)
+        .maybeSingle(),
+      client
+        .from('outlets')
+        .select('*')
+        .eq('outlet_id', outletId)
+        .maybeSingle(),
+    ]);
+
+    if (!txRes.data) return null;
+    const tx = txRes.data as Record<string, any>;
+    const outlet = (outletRes.data as Record<string, any> | null) || {};
+    const showKasir = outlet.struk_tampilkan_kasir ?? true;
+    const showNotes = outlet.struk_tampilkan_catatan_item ?? true;
+    const showPhone = outlet.struk_tampilkan_wa_usaha ?? true;
+
+    return {
+      u: outlet.nama_usaha || 'Lembayung',
+      lg: outlet.logo_usaha || undefined,
+      a: outlet.alamat_usaha || '-',
+      p: showPhone ? outlet.telepon_usaha || undefined : undefined,
+      h: outlet.struk_header || undefined,
+      f: outlet.struk_footer || 'Terima kasih!',
+      n: tx.nomor_struk,
+      w: tx.waktu,
+      k: showKasir ? tx.kasir_nama : undefined,
+      c: tx.nama_pelanggan || undefined,
+      m: tx.metode_bayar,
+      s: Number(tx.subtotal || 0),
+      d: Number(tx.diskon_nominal || 0),
+      dl: tx.diskon_label || undefined,
+      t: Number(tx.total || 0),
+      b: Number(tx.uang_diterima || 0),
+      kb: Number(tx.kembalian || 0),
+      st: tx.status || 'selesai',
+      it: Array.isArray(tx.items)
+        ? tx.items.map((item: Record<string, any>) => ({
+            nm: item.menuNama || item.nama || '',
+            q: Number(item.jumlah || 1),
+            hj: Number(item.hargaJual || 0),
+            ct: showNotes ? item.catatan : undefined,
+          }))
+        : [],
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Buat link struk digital yang bisa dibuka siapa saja
  */
 export function buildReceiptShareLink(tx: Transaction, settings?: AppSettings): string {
-  const payload = buildReceiptPayload(tx, settings);
-  const encoded = toBase64Url(JSON.stringify(payload));
-  const baseUrl =
-    settings?.strukBaseUrl?.trim() ||
-    `${window.location.origin}${window.location.pathname}`;
-  const cleanBase = baseUrl.replace(/#.*$/, '');
-  return `${cleanBase}#struk=${encoded}`;
+  return buildWebReceiptUrl(tx, settings);
 }
 
 export function decodeReceiptFromHash(hash: string): PublicReceiptPayload | null {

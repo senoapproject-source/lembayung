@@ -480,9 +480,11 @@ export async function deleteHoldOrder(orderId: string): Promise<void> {
 export async function voidTransaction(
   txId: string,
   alasan: string,
-  owner: User
+  actor: User
 ): Promise<void> {
-  if (owner.role !== 'owner') throw new Error('Hanya Owner yang dapat membatalkan transaksi');
+  if (actor.role !== 'owner' && actor.role !== 'manager') {
+    throw new Error('Hanya Owner atau Manager yang dapat membatalkan transaksi');
+  }
   if (!alasan.trim()) throw new Error('Alasan pembatalan wajib diisi');
 
   const tx = await db.transactions.get(txId);
@@ -491,12 +493,12 @@ export async function voidTransaction(
   await db.transactions.update(txId, {
     status: 'void',
     alasanVoid: alasan.trim(),
-    voidBy: owner.nama,
+    voidBy: actor.nama,
     voidAt: new Date().toISOString(),
     syncStatus: navigator.onLine ? 'synced' : 'pending',
   });
 
-  await addAuditLog(owner, 'VOID_TRANSAKSI', tx.nomorStruk, `Alasan: ${alasan.trim()}`);
+  await addAuditLog(actor, 'VOID_TRANSAKSI', tx.nomorStruk, `Alasan: ${alasan.trim()}`);
   sendDeviceNotification({
     title: `Transaksi Dibatalkan (Void) ${tx.nomorStruk}`,
     body: `${formatRupiah(tx.total)} · Alasan: ${alasan.trim()}`,
@@ -735,6 +737,8 @@ export async function registerNewBusiness(input: {
       await db.settings.put({
         ...currentSettings,
         namaUsaha: input.namaUsaha.trim(),
+        namaCabang: 'Pusat',
+        ownerEmail: input.email?.trim().toLowerCase() || undefined,
         alamatUsaha: input.alamatUsaha.trim() || '-',
         cloudSyncMode: 'supabase',
         outletId,
@@ -783,6 +787,8 @@ export async function registerNewBusiness(input: {
     await db.settings.put({
       id: 'global',
       namaUsaha: input.namaUsaha.trim(),
+      namaCabang: 'Pusat',
+      ownerEmail: input.email?.trim().toLowerCase() || undefined,
       alamatUsaha: input.alamatUsaha.trim() || '-',
       teleponUsaha: '',
       strukHeader: '',

@@ -54,6 +54,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   const [uNama, setUNama] = useState('');
   const [uUsername, setUUsername] = useState('');
   const [uEmail, setUEmail] = useState('');
+  const [uRole, setURole] = useState<'manager' | 'kasir'>('kasir');
   const [uPassword, setUPassword] = useState('');
   const [uPin, setUPin] = useState('');
   const [uCanDiscount, setUCanDiscount] = useState(false);
@@ -166,6 +167,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
     setUNama('');
     setUUsername('');
     setUEmail('');
+    setURole('kasir');
     setUPassword('');
     setUPin('');
     setUCanDiscount(settings.defaultKasirDiscount);
@@ -175,10 +177,15 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   };
 
   const openEditUserModal = (target: User) => {
+    if (user.role === 'manager' && target.role !== 'kasir') {
+      alert('Manager hanya dapat mengatur akun Kasir.');
+      return;
+    }
     setEditingUser(target);
     setUNama(target.nama);
     setUUsername(target.username);
     setUEmail(target.email ?? '');
+    setURole(target.role === 'manager' ? 'manager' : 'kasir');
     setUPassword('');
     setUPin(target.pin ?? '');
     setUCanDiscount(target.canDiscount);
@@ -226,13 +233,20 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
 
     if (editingUser) {
       const cleanEmail = uEmail.trim().toLowerCase();
+      const targetRole =
+        editingUser.role === 'owner'
+          ? 'owner'
+          : user.role === 'owner'
+          ? uRole
+          : 'kasir';
       const patch: Partial<User> = {
         nama: uNama.trim(),
         username: uUsername.trim(),
         email: cleanEmail || undefined,
+        role: targetRole,
         pin: cleanPin,
-        canDiscount: uCanDiscount,
-        canRecordExpense: uCanRecordExp,
+        canDiscount: targetRole === 'manager' || targetRole === 'owner' ? true : uCanDiscount,
+        canRecordExpense: targetRole === 'manager' || targetRole === 'owner' ? true : uCanRecordExp,
         active: uActive,
         updatedAt: nowIso,
       };
@@ -240,40 +254,46 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
         patch.passwordHash = await hashPassword(uPassword);
       }
       await db.users.update(editingUser.id, patch);
-      await addAuditLog(user, 'UBAH_PENGGUNA', uNama.trim(), `Aktif: ${uActive}`);
+      await addAuditLog(user, 'UBAH_PENGGUNA', uNama.trim(), `Role: ${targetRole} · Aktif: ${uActive}`);
       await enqueueSync('master', editingUser.id, 'upsert', { ...patch, isUser: true });
       notify(`Data pengguna ${uNama.trim()} disimpan.`);
     } else {
       const hash = await hashPassword(uPassword);
       const newUserId = uuidv4();
+      const cleanEmail = uEmail.trim().toLowerCase();
+      const newRole = user.role === 'owner' ? uRole : 'kasir';
       await db.users.add({
         id: newUserId,
         nama: uNama.trim(),
         username: uUsername.trim(),
+        email: cleanEmail || undefined,
         passwordHash: hash,
         pin: cleanPin,
-        role: 'kasir',
-        canDiscount: uCanDiscount,
-        canRecordExpense: uCanRecordExp,
+        role: newRole,
+        canDiscount: newRole === 'manager' ? true : uCanDiscount,
+        canRecordExpense: newRole === 'manager' ? true : uCanRecordExp,
         active: true,
         createdAt: nowIso,
         updatedAt: nowIso,
       });
-      await addAuditLog(user, 'TAMBAH_PENGGUNA', uNama.trim(), 'Role: Kasir');
+      await addAuditLog(user, 'TAMBAH_PENGGUNA', uNama.trim(), `Role: ${newRole}`);
       sendDeviceNotification({
         title: `Pengguna Baru: ${uNama.trim()}`,
-        body: `Kasir baru (${uUsername.trim()}) ditambahkan oleh ${user.nama}`,
+        body: `${newRole === 'manager' ? 'Manager' : 'Kasir'} baru (${uUsername.trim()}) ditambahkan oleh ${user.nama}`,
         dedupKey: `user-add-${newUserId}`,
       });
       await enqueueSync('master', newUserId, 'upsert', { id: newUserId, isUser: true });
-      notify(`Kasir ${uNama.trim()} berhasil ditambahkan.`);
+      notify(`${newRole === 'manager' ? 'Manager' : 'Kasir'} ${uNama.trim()} berhasil ditambahkan.`);
     }
     setShowAddUser(false);
   };
 
   const canDeleteUser = (target: User): boolean => {
-    if (user.role !== 'owner') return false;
     if (target.id === user.id) return false;
+    if (user.role === 'manager') {
+      return target.role === 'kasir';
+    }
+    if (user.role !== 'owner') return false;
     if (target.role === 'owner') {
       const ownerCount = users.filter((u) => u.role === 'owner').length;
       if (ownerCount <= 1) return false;
@@ -714,7 +734,17 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
           <div key={u.id} className="px-3.5 py-3 flex justify-between items-center gap-3">
             <div>
               <div className={`font-semibold text-sm flex items-center gap-1.5 ${!u.active ? 'text-[#6b6a68]' : ''}`}>
-                {u.nama} {u.role === 'owner' ? '(Owner)' : ''}
+                {u.nama}
+                {u.role === 'owner' && (
+                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-[#1F7A5A] text-white">
+                    Owner
+                  </span>
+                )}
+                {u.role === 'manager' && (
+                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-[#e0e7ff] text-[#3730a3]">
+                    Manager
+                  </span>
+                )}
                 {u.pin && (
                   <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-[#e4f1ea] text-[#1F7A5A]">
                     PIN
@@ -723,7 +753,9 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
               </div>
               <div className="text-xs text-[#6b6a68]">
                 {u.role === 'owner'
-                  ? 'Akses penuh'
+                  ? 'Akses penuh seluruh cabang'
+                  : u.role === 'manager'
+                  ? `Manager · akses laporan, void, resep & tim kasir${u.email ? ` · ${u.email}` : ''}`
                   : !u.active
                   ? 'Kasir · nonaktif, riwayat tetap utuh'
                   : `Kasir · diskon ${u.canDiscount ? 'aktif' : 'nonaktif'} · pembelian ${
@@ -1019,16 +1051,45 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                   required
                 />
               </div>
-              {editingUser?.role === 'owner' && (
+              {user.role === 'owner' && editingUser?.role !== 'owner' && (
+                <div>
+                  <label className="block text-xs font-medium text-[#4a4947] mb-1">Peran (Role)</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setURole('kasir')}
+                      className={`h-9 rounded-lg border text-xs font-semibold transition ${
+                        uRole === 'kasir'
+                          ? 'bg-[#e4f1ea] border-[#1F7A5A] text-[#1F7A5A]'
+                          : 'bg-white border-[#d6d3c8] text-[#4a4947]'
+                      }`}
+                    >
+                      Kasir (POS)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setURole('manager')}
+                      className={`h-9 rounded-lg border text-xs font-semibold transition ${
+                        uRole === 'manager'
+                          ? 'bg-[#e0e7ff] border-[#4338ca] text-[#3730a3]'
+                          : 'bg-white border-[#d6d3c8] text-[#4a4947]'
+                      }`}
+                    >
+                      Manager (Web &amp; App)
+                    </button>
+                  </div>
+                </div>
+              )}
+              {(editingUser?.role === 'owner' || uRole === 'manager') && (
                 <div>
                   <label className="block text-xs font-medium text-[#4a4947] mb-1">
-                    Email Owner (untuk login &amp; pemulihan akun)
+                    Email {editingUser?.role === 'owner' ? 'Owner' : 'Manager'} (untuk login Website &amp; laporan)
                   </label>
                   <input
                     type="email"
                     value={uEmail}
                     onChange={(e) => setUEmail(e.target.value)}
-                    placeholder="owner@gmail.com"
+                    placeholder="nama@gmail.com"
                     className="w-full h-10 border border-[#d6d3c8] rounded-[10px] px-3 text-sm"
                   />
                 </div>
