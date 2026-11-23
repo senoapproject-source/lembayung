@@ -13,7 +13,7 @@ import {
 import { X } from 'lucide-react';
 
 interface TargetBepPageProps {
-  onBack: () => void;
+  onBack?: () => void;
 }
 
 export const TargetBepPage: React.FC<TargetBepPageProps> = ({ onBack }) => {
@@ -111,13 +111,15 @@ export const TargetBepPage: React.FC<TargetBepPageProps> = ({ onBack }) => {
           </div>
         </div>
         <div className="flex gap-1.5">
-          <button
-            type="button"
-            onClick={onBack}
-            className="h-9 px-3 rounded-full border border-[#d6d3c8] bg-white text-[13px] font-medium"
-          >
-            ‹ Laporan
-          </button>
+          {onBack && (
+            <button
+              type="button"
+              onClick={onBack}
+              className="h-9 px-3 rounded-full border border-[#d6d3c8] bg-white text-[13px] font-medium"
+            >
+              ‹ Laporan
+            </button>
+          )}
           <button
             type="button"
             onClick={openEdit}

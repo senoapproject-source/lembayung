@@ -509,7 +509,7 @@ export const WebDashboardShell: React.FC<WebDashboardShellProps> = ({
             )}
             {activeTab === 'target' && (
               <div className="bg-white border border-[#e2e0d8] rounded-2xl overflow-hidden">
-                <TargetBepPage onBack={() => setActiveTab('overview')} />
+                <TargetBepPage />
               </div>
             )}
             {activeTab === 'branches' && (

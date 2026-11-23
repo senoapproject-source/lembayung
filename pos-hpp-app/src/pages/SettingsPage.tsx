@@ -398,21 +398,25 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
     notify('Seluruh data operasional berhasil dibersihkan.');
   };
 
+  const isNativeApp = Capacitor.isNativePlatform();
+
   return (
     <div className="px-5 pt-5 pb-8 flex flex-col gap-3">
-      <div className="flex justify-between items-center gap-2">
-        <div>
-          <h1 className="text-[22px] font-bold">Pengaturan</h1>
-          <div className="text-xs text-[#6b6a68]">Hanya Owner</div>
+      {isNativeApp && (
+        <div className="flex justify-between items-center gap-2">
+          <div>
+            <h1 className="text-[22px] font-bold">Pengaturan</h1>
+            <div className="text-xs text-[#6b6a68]">Hanya Owner</div>
+          </div>
+          <button
+            type="button"
+            onClick={onBack}
+            className="h-9 px-3.5 rounded-full border border-[#d6d3c8] bg-white text-[13px] font-medium"
+          >
+            ‹ Kembali
+          </button>
         </div>
-        <button
-          type="button"
-          onClick={onBack}
-          className="h-9 px-3.5 rounded-full border border-[#d6d3c8] bg-white text-[13px] font-medium"
-        >
-          ‹ Kembali
-        </button>
-      </div>
+      )}
 
       {statusMessage && (
         <div className="bg-[#e4f1ea] border border-[#c5dfd1] text-[#1F7A5A] text-xs font-semibold px-3.5 py-2.5 rounded-xl">
@@ -420,86 +424,90 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
         </div>
       )}
 
-      {/* Tampilan & Notifikasi */}
-      <div className="text-xs font-semibold uppercase tracking-wide text-[#4a4947] mt-1">
-        Tampilan &amp; Notifikasi
-      </div>
-      <div className="bg-white border border-[#e2e0d8] rounded-xl overflow-hidden divide-y divide-[#eeece5]">
-        <div className="px-3.5 py-3 flex justify-between items-center gap-3">
-          <div>
-            <div className="font-medium text-sm">Mode Gelap (Dark Mode)</div>
-            <div className="text-xs text-[#6b6a68]">
-              {darkMode ? 'Aktif · nyaman untuk mata di tempat redup' : 'Nonaktif · menggunakan tema terang'}
-            </div>
+      {/* Tampilan & Notifikasi (Khusus Aplikasi Perangkat) */}
+      {isNativeApp && (
+        <>
+          <div className="text-xs font-semibold uppercase tracking-wide text-[#4a4947] mt-1">
+            Tampilan &amp; Notifikasi
           </div>
-          <button
-            type="button"
-            onClick={onToggleDarkMode}
-            className={`w-11 h-[26px] rounded-full relative transition shrink-0 ${
-              darkMode ? 'bg-[#1F7A5A]' : 'bg-[#cfcbbf]'
-            }`}
-          >
-            <span
-              className={`absolute top-[3px] w-5 h-5 rounded-full bg-white transition-all ${
-                darkMode ? 'right-[3px]' : 'left-[3px]'
-              }`}
-            />
-          </button>
-        </div>
-
-        <div className="px-3.5 py-3 flex justify-between items-center gap-3">
-          <div>
-            <div className="font-medium text-sm">Notifikasi Transaksi ke Perangkat</div>
-            <div className="text-xs text-[#6b6a68]">
-              Bunyi &amp; pop-up saat ada penjualan, void, belanja bahan, atau pengeluaran
-            </div>
-          </div>
-          <div className="flex items-center gap-2 shrink-0">
-            {notifEnabled && (
+          <div className="bg-white border border-[#e2e0d8] rounded-xl overflow-hidden divide-y divide-[#eeece5]">
+            <div className="px-3.5 py-3 flex justify-between items-center gap-3">
+              <div>
+                <div className="font-medium text-sm">Mode Gelap (Dark Mode)</div>
+                <div className="text-xs text-[#6b6a68]">
+                  {darkMode ? 'Aktif · nyaman untuk mata di tempat redup' : 'Nonaktif · menggunakan tema terang'}
+                </div>
+              </div>
               <button
                 type="button"
-                onClick={async () => {
-                  const ok = await initDeviceNotifications();
-                  if (!ok) {
-                    alert('Izin notifikasi belum diberikan. Mohon aktifkan izin notifikasi untuk Lembayung di pengaturan HP/Tab.');
-                    return;
-                  }
-                  await sendDeviceNotification({
-                    title: 'Tes Notifikasi Lembayung',
-                    body: 'Notifikasi transaksi perangkat sudah aktif dan siap digunakan!',
-                  });
-                }}
-                className="text-[11px] font-semibold text-[#1F7A5A] bg-[#e4f1ea] px-2.5 py-1 rounded-full"
-              >
-                Tes
-              </button>
-            )}
-            <button
-              type="button"
-              onClick={async () => {
-                const next = !notifEnabled;
-                setNotificationsEnabled(next);
-                setNotifEnabled(next);
-                if (next) {
-                  await initDeviceNotifications();
-                  notify('Notifikasi transaksi diaktifkan.');
-                } else {
-                  notify('Notifikasi transaksi dimatikan.');
-                }
-              }}
-              className={`w-11 h-[26px] rounded-full relative transition shrink-0 ${
-                notifEnabled ? 'bg-[#1F7A5A]' : 'bg-[#cfcbbf]'
-              }`}
-            >
-              <span
-                className={`absolute top-[3px] w-5 h-5 rounded-full bg-white transition-all ${
-                  notifEnabled ? 'right-[3px]' : 'left-[3px]'
+                onClick={onToggleDarkMode}
+                className={`w-11 h-[26px] rounded-full relative transition shrink-0 ${
+                  darkMode ? 'bg-[#1F7A5A]' : 'bg-[#cfcbbf]'
                 }`}
-              />
-            </button>
+              >
+                <span
+                  className={`absolute top-[3px] w-5 h-5 rounded-full bg-white transition-all ${
+                    darkMode ? 'right-[3px]' : 'left-[3px]'
+                  }`}
+                />
+              </button>
+            </div>
+
+            <div className="px-3.5 py-3 flex justify-between items-center gap-3">
+              <div>
+                <div className="font-medium text-sm">Notifikasi Transaksi ke Perangkat</div>
+                <div className="text-xs text-[#6b6a68]">
+                  Bunyi &amp; pop-up saat ada penjualan, void, belanja bahan, atau pengeluaran
+                </div>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                {notifEnabled && (
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const ok = await initDeviceNotifications();
+                      if (!ok) {
+                        alert('Izin notifikasi belum diberikan. Mohon aktifkan izin notifikasi untuk Lembayung di pengaturan HP/Tab.');
+                        return;
+                      }
+                      await sendDeviceNotification({
+                        title: 'Tes Notifikasi Lembayung',
+                        body: 'Notifikasi transaksi perangkat sudah aktif dan siap digunakan!',
+                      });
+                    }}
+                    className="text-[11px] font-semibold text-[#1F7A5A] bg-[#e4f1ea] px-2.5 py-1 rounded-full"
+                  >
+                    Tes
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const next = !notifEnabled;
+                    setNotificationsEnabled(next);
+                    setNotifEnabled(next);
+                    if (next) {
+                      await initDeviceNotifications();
+                      notify('Notifikasi transaksi diaktifkan.');
+                    } else {
+                      notify('Notifikasi transaksi dimatikan.');
+                    }
+                  }}
+                  className={`w-11 h-[26px] rounded-full relative transition shrink-0 ${
+                    notifEnabled ? 'bg-[#1F7A5A]' : 'bg-[#cfcbbf]'
+                  }`}
+                >
+                  <span
+                    className={`absolute top-[3px] w-5 h-5 rounded-full bg-white transition-all ${
+                      notifEnabled ? 'right-[3px]' : 'left-[3px]'
+                    }`}
+                  />
+                </button>
+              </div>
+            </div>
           </div>
-        </div>
-      </div>
+        </>
+      )}
 
       {/* Profil Usaha & Pengaturan Struk (FR-SET-01) */}
       <div className="text-xs font-semibold uppercase tracking-wide text-[#4a4947] mt-1">
@@ -719,80 +727,84 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
         </div>
       </div>
 
-      {/* Pengguna */}
-      <div className="flex justify-between items-center mt-1">
-        <span className="text-xs font-semibold uppercase tracking-wide text-[#4a4947]">Pengguna</span>
-        <button
-          type="button"
-          onClick={openAddUserModal}
-          className="text-[13px] font-semibold text-[#1F7A5A]"
-        >
-          + Tambah pengguna
-        </button>
-      </div>
-      <div className="bg-white border border-[#e2e0d8] rounded-xl overflow-hidden divide-y divide-[#eeece5]">
-        {users.map((u) => (
-          <div key={u.id} className="px-3.5 py-3 flex justify-between items-center gap-3">
-            <div>
-              <div className={`font-semibold text-sm flex items-center gap-1.5 ${!u.active ? 'text-[#6b6a68]' : ''}`}>
-                {u.nama}
-                {u.role === 'owner' && (
-                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-[#1F7A5A] text-white">
-                    Owner
-                  </span>
-                )}
-                {u.role === 'manager' && (
-                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-[#e0e7ff] text-[#3730a3]">
-                    Manager
-                  </span>
-                )}
-                {u.pin && (
-                  <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-[#e4f1ea] text-[#1F7A5A]">
-                    PIN
-                  </span>
-                )}
-              </div>
-              <div className="text-xs text-[#6b6a68]">
-                {u.role === 'owner'
-                  ? 'Akses penuh seluruh cabang'
-                  : u.role === 'manager'
-                  ? `Manager · akses laporan, void, resep & tim kasir${u.email ? ` · ${u.email}` : ''}`
-                  : !u.active
-                  ? 'Kasir · nonaktif, riwayat tetap utuh'
-                  : `Kasir · diskon ${u.canDiscount ? 'aktif' : 'nonaktif'} · pembelian ${
-                      u.canRecordExpense ? 'aktif' : 'nonaktif'
-                    }`}
-              </div>
-            </div>
-            <div className="flex items-center gap-2.5 shrink-0">
-              <button
-                type="button"
-                onClick={() => openEditUserModal(u)}
-                className="text-[13px] font-semibold text-[#1F7A5A]"
-              >
-                Atur
-              </button>
-              {canDeleteUser(u) && (
-                <button
-                  type="button"
-                  onClick={() => handleDeleteUser(u)}
-                  title={`Hapus ${u.nama}`}
-                  className="p-1.5 rounded-lg text-[#9b1c12] hover:bg-[#fbe4e1] transition"
-                >
-                  <Trash2 size={15} />
-                </button>
-              )}
-            </div>
+      {/* Pengguna (di Website sudah ada menu khusus Cabang & Tim) */}
+      {isNativeApp && (
+        <>
+          <div className="flex justify-between items-center mt-1">
+            <span className="text-xs font-semibold uppercase tracking-wide text-[#4a4947]">Pengguna</span>
+            <button
+              type="button"
+              onClick={openAddUserModal}
+              className="text-[13px] font-semibold text-[#1F7A5A]"
+            >
+              + Tambah pengguna
+            </button>
           </div>
-        ))}
-      </div>
+          <div className="bg-white border border-[#e2e0d8] rounded-xl overflow-hidden divide-y divide-[#eeece5]">
+            {users.map((u) => (
+              <div key={u.id} className="px-3.5 py-3 flex justify-between items-center gap-3">
+                <div>
+                  <div className={`font-semibold text-sm flex items-center gap-1.5 ${!u.active ? 'text-[#6b6a68]' : ''}`}>
+                    {u.nama}
+                    {u.role === 'owner' && (
+                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-[#1F7A5A] text-white">
+                        Owner
+                      </span>
+                    )}
+                    {u.role === 'manager' && (
+                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-[#e0e7ff] text-[#3730a3]">
+                        Manager
+                      </span>
+                    )}
+                    {u.pin && (
+                      <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-[#e4f1ea] text-[#1F7A5A]">
+                        PIN
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-xs text-[#6b6a68]">
+                    {u.role === 'owner'
+                      ? 'Akses penuh seluruh cabang'
+                      : u.role === 'manager'
+                      ? `Manager · akses laporan, void, resep & tim kasir${u.email ? ` · ${u.email}` : ''}`
+                      : !u.active
+                      ? 'Kasir · nonaktif, riwayat tetap utuh'
+                      : `Kasir · diskon ${u.canDiscount ? 'aktif' : 'nonaktif'} · pembelian ${
+                          u.canRecordExpense ? 'aktif' : 'nonaktif'
+                        }`}
+                  </div>
+                </div>
+                <div className="flex items-center gap-2.5 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => openEditUserModal(u)}
+                    className="text-[13px] font-semibold text-[#1F7A5A]"
+                  >
+                    Atur
+                  </button>
+                  {canDeleteUser(u) && (
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteUser(u)}
+                      title={`Hapus ${u.nama}`}
+                      className="p-1.5 rounded-lg text-[#9b1c12] hover:bg-[#fbe4e1] transition"
+                    >
+                      <Trash2 size={15} />
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
 
       {/* Data, Backup & Reset */}
       <div className="flex justify-between items-center mt-1">
         <span className="text-xs font-semibold uppercase tracking-wide text-[#4a4947]">
-          Kode Toko &amp; Sinkronisasi Cloud
+          {isNativeApp ? 'Kode Toko & Sinkronisasi Cloud' : 'Kode Toko Perangkat Kasir'}
         </span>
-        {getAppEnvironment() === 'testing' && (
+        {isNativeApp && getAppEnvironment() === 'testing' && (
           <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-[#fbeed9] text-[#7a4300]">
             ENV: TESTING
           </span>
