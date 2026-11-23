@@ -133,7 +133,7 @@ export async function sendDeviceNotification(params: {
             body: params.body,
             channelId: CHANNEL_ID,
             smallIcon: 'ic_stat_lembayung',
-            largeIcon: 'ic_launcher',
+            largeIcon: 'ic_lembayung_logo',
             iconColor: '#1F7A5A',
             schedule: { at: new Date(Date.now() + 150) },
           },
