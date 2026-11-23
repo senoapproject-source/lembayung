@@ -150,6 +150,20 @@ async function main() {
     console.log(`\n✅ BERHASIL! APK Lembayung v${nextVersion} tayang & notifikasi update manual aktif!`);
   }
 
+  // Auto-cleanup: hapus file APK versi lama di bucket agar storage tetap hemat (sisakan versi aktif + alias latest)
+  const { data: listedFiles } = await sb.storage.from('cuanin-updates').list('', { limit: 200 });
+  if (Array.isArray(listedFiles)) {
+    const oldApks = listedFiles
+      .map((f) => String(f.name || ''))
+      .filter((name) => name.endsWith('.apk') && name !== fileName && name !== latestAliasName);
+    if (oldApks.length > 0) {
+      const { error: rmErr } = await sb.storage.from('cuanin-updates').remove(oldApks);
+      if (!rmErr) {
+        console.log(`🗑️  Menghapus ${oldApks.length} file APK lama (${oldApks.join(', ')})`);
+      }
+    }
+  }
+
   console.log(`🔗 LINK VERSI INI:\n${downloadUrl}`);
   console.log(`🔗 LINK TETAP MERCHANT BARU:\n${latestAliasData.publicUrl}\n`);
 }
