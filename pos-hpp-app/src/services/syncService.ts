@@ -23,7 +23,8 @@ let cachedKey = '';
 // Mutex agar background pull tidak pernah menimpa perubahan lokal yang sedang di-push ke Cloud
 let activeCloudMutations = 0;
 
-export const APP_VERSION = '1.1';
+export const APP_VERSION =
+  (import.meta.env.VITE_APP_VERSION as string | undefined)?.trim() || '1.4';
 const OTA_VERSION_STORAGE_KEY = 'cuanin_installed_ota_version_v2';
 
 export function markVersionInstalled(version: string): void {

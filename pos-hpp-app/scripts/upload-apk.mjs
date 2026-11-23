@@ -10,6 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 
 const ROOT_DIR = process.cwd();
 const isProd = process.argv.includes('--prod');
+const isInstallerOnly = process.argv.includes('--installer');
 const envFile = path.join(ROOT_DIR, isProd ? '.env.production' : '.env.testing');
 
 let supabaseUrl = '';
@@ -86,9 +87,10 @@ async function main() {
   const sizeMb = (stat.size / (1024 * 1024)).toFixed(2);
   const apkBuffer = fs.readFileSync(apkPath);
   const fileName = isProd ? `Lembayung-v${nextVersion}.apk` : `Lembayung-testing-v${nextVersion}.apk`;
+  const latestAliasName = isProd ? 'Lembayung-latest.apk' : 'Lembayung-testing-latest.apk';
 
   console.log(`\n📦 File ditemukan: ${apkPath} (${sizeMb} MB)`);
-  console.log(`☁️  Mengunggah ${fileName} ke Supabase Storage (${isProd ? 'PRODUCTION' : 'TESTING'})...`);
+  console.log(`☁️  Mengunggah ${fileName} & ${latestAliasName} ke Supabase Storage (${isProd ? 'PRODUCTION' : 'TESTING'})...`);
 
   const { error: uploadErr } = await sb.storage
     .from('cuanin-updates')
@@ -102,26 +104,54 @@ async function main() {
     process.exit(1);
   }
 
+  // Simpan juga alias tetap (Lembayung-latest.apk) agar calon merchant baru selalu mendapat versi terbaru
+  await sb.storage
+    .from('cuanin-updates')
+    .upload(latestAliasName, apkBuffer, {
+      contentType: 'application/vnd.android.package-archive',
+      upsert: true,
+    });
+
   const { data } = sb.storage.from('cuanin-updates').getPublicUrl(fileName);
+  const { data: latestAliasData } = sb.storage.from('cuanin-updates').getPublicUrl(latestAliasName);
   const downloadUrl = data.publicUrl;
 
-  // Update app_versions dengan bundle_zip_url = null agar HP/Tab menampilkan notifikasi & tombol "Download Update APK Manual"
-  await sb.from('app_versions').upsert(
-    {
-      id: 'android',
-      latest_version: nextVersion,
-      min_required_version: currentRow?.min_required_version || '1.0.0',
-      download_url: downloadUrl,
-      bundle_zip_url: null,
-      release_notes: customNotes,
-      force_update: false,
-      updated_at: new Date().toISOString(),
-    },
-    { onConflict: 'id' }
-  );
+  if (isInstallerOnly) {
+    // Mode --installer: pertahankan bundle_zip_url agar perangkat lama tetap update via OTA (tidak dipaksa download APK manual)
+    await sb.from('app_versions').upsert(
+      {
+        id: 'android',
+        latest_version: currentRow?.latest_version || nextVersion,
+        min_required_version: currentRow?.min_required_version || '1.0.0',
+        download_url: latestAliasData.publicUrl,
+        bundle_zip_url: currentRow?.bundle_zip_url || null,
+        release_notes: currentRow?.release_notes || customNotes,
+        force_update: false,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'id' }
+    );
+    console.log(`\n✅ BERHASIL! Installer APK Lembayung v${nextVersion} siap untuk merchant baru (perangkat lama tetap pakai OTA)!`);
+  } else {
+    // Update app_versions dengan bundle_zip_url = null agar HP/Tab menampilkan tombol Download APK Manual
+    await sb.from('app_versions').upsert(
+      {
+        id: 'android',
+        latest_version: nextVersion,
+        min_required_version: currentRow?.min_required_version || '1.0.0',
+        download_url: downloadUrl,
+        bundle_zip_url: null,
+        release_notes: customNotes,
+        force_update: false,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'id' }
+    );
+    console.log(`\n✅ BERHASIL! APK Lembayung v${nextVersion} tayang & notifikasi update manual aktif!`);
+  }
 
-  console.log(`\n✅ BERHASIL! APK Lembayung v${nextVersion} tayang & notifikasi update manual aktif!`);
-  console.log(`🔗 LINK DOWNLOAD LANGSUNG:\n${downloadUrl}\n`);
+  console.log(`🔗 LINK VERSI INI:\n${downloadUrl}`);
+  console.log(`🔗 LINK TETAP MERCHANT BARU:\n${latestAliasData.publicUrl}\n`);
 }
 
 main().catch((err) => {

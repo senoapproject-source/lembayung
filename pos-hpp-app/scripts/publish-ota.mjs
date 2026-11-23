@@ -109,9 +109,10 @@ async function publishTarget({ mode, version, notes, currentRow }) {
   const sb = createSupabaseForMode(mode);
   const label = mode === 'production' ? 'PRODUCTION' : 'TESTING';
 
-  console.log(`\n🚀 [${label} 1/5] Mem-build bundle web Cuanin (mode: ${mode})...`);
+  console.log(`\n🚀 [${label} 1/5] Mem-build bundle web Lembayung v${version} (mode: ${mode})...`);
   execSync(`npm run build:${mode === 'production' ? 'prod' : 'testing'}`, {
     stdio: 'inherit',
+    env: { ...process.env, VITE_APP_VERSION: version },
   });
 
   if (!fs.existsSync(DIST_DIR)) {
