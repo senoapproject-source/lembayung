@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { Capacitor } from '@capacitor/core';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { v4 as uuidv4 } from 'uuid';
 import { db, hashPassword } from '../db/database';
@@ -817,57 +818,61 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
           </button>
         </div>
 
-        <div className="flex flex-col gap-2">
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-1.5 text-xs font-semibold text-[#1F7A5A]">
-              <span>Sinkronisasi Otomatis Aktif</span>
+        {Capacitor.isNativePlatform() && (
+          <>
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-1.5 text-xs font-semibold text-[#1F7A5A]">
+                  <span>Sinkronisasi Otomatis Aktif</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowSyncInfo((v) => !v)}
+                  title="Informasi Sinkronisasi Otomatis"
+                  className="w-6 h-6 rounded-full bg-[#ece9e0] hover:bg-[#e2e0d8] text-[#4a4947] flex items-center justify-center shrink-0 transition"
+                >
+                  <AlertCircle size={14} />
+                </button>
+              </div>
+              {showSyncInfo && (
+                <div className="text-xs text-[#6b6a68] bg-[#faf9f5] border border-[#e2e0d8] rounded-lg px-3 py-2 leading-relaxed">
+                  Saat offline, data disimpan aman di HP. Begitu terhubung internet, seluruh transaksi, menu, pengguna &amp; perubahan otomatis disinkronkan ke Cloud dan perangkat lain tanpa perlu klik manual.
+                </div>
+              )}
             </div>
-            <button
-              type="button"
-              onClick={() => setShowSyncInfo((v) => !v)}
-              title="Informasi Sinkronisasi Otomatis"
-              className="w-6 h-6 rounded-full bg-[#ece9e0] hover:bg-[#e2e0d8] text-[#4a4947] flex items-center justify-center shrink-0 transition"
-            >
-              <AlertCircle size={14} />
-            </button>
-          </div>
-          {showSyncInfo && (
-            <div className="text-xs text-[#6b6a68] bg-[#faf9f5] border border-[#e2e0d8] rounded-lg px-3 py-2 leading-relaxed">
-              Saat offline, data disimpan aman di HP. Begitu terhubung internet, seluruh transaksi, menu, pengguna &amp; perubahan otomatis disinkronkan ke Cloud dan perangkat lain tanpa perlu klik manual.
+
+            <div className="flex justify-between items-center pt-2 border-t border-[#eeece5]">
+              <div className="text-xs text-[#6b6a68]">
+                Versi Aplikasi: <strong className="text-[#1f1e1d]">v{getInstalledAppVersion()}</strong>
+              </div>
+              <button
+                type="button"
+                disabled={syncLoading}
+                onClick={handleCheckUpdateManual}
+                className="text-xs font-semibold text-[#1F7A5A] hover:underline"
+              >
+                Cek Update Aplikasi
+              </button>
             </div>
-          )}
-        </div>
 
-        <div className="flex justify-between items-center pt-2 border-t border-[#eeece5]">
-          <div className="text-xs text-[#6b6a68]">
-            Versi Aplikasi: <strong className="text-[#1f1e1d]">v{getInstalledAppVersion()}</strong>
-          </div>
-          <button
-            type="button"
-            disabled={syncLoading}
-            onClick={handleCheckUpdateManual}
-            className="text-xs font-semibold text-[#1F7A5A] hover:underline"
-          >
-            Cek Update Aplikasi
-          </button>
-        </div>
-
-        <div className="flex justify-between items-center pt-2 border-t border-[#eeece5]">
-          <button
-            type="button"
-            onClick={handleResetDemo}
-            className="text-xs font-semibold text-[#7a4300] flex items-center gap-1.5"
-          >
-            <RotateCcw size={13} /> Bersihkan Data Demo
-          </button>
-          <button
-            type="button"
-            onClick={onLogout}
-            className="text-xs font-semibold text-[#9b1c12] flex items-center gap-1.5"
-          >
-            <LogOut size={13} /> Keluar Akun
-          </button>
-        </div>
+            <div className="flex justify-between items-center pt-2 border-t border-[#eeece5]">
+              <button
+                type="button"
+                onClick={handleResetDemo}
+                className="text-xs font-semibold text-[#7a4300] flex items-center gap-1.5"
+              >
+                <RotateCcw size={13} /> Bersihkan Data Demo
+              </button>
+              <button
+                type="button"
+                onClick={onLogout}
+                className="text-xs font-semibold text-[#9b1c12] flex items-center gap-1.5"
+              >
+                <LogOut size={13} /> Keluar Akun
+              </button>
+            </div>
+          </>
+        )}
       </div>
 
       {/* Modal Edit Profil Usaha & Pengaturan Struk */}
