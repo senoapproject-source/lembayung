@@ -207,12 +207,6 @@ export async function recordPurchase(
     `Bahan: ${ing.nama}`,
     `${input.jumlahBeli} ${input.satuanBeli} (${input.satuanDasarDidapat} ${ing.labelSatuanDasar}) · Rp${input.totalHarga}`
   );
-  sendDeviceNotification({
-    title: `Pembelian Bahan: ${ing.nama}`,
-    body: `${formatRupiah(input.totalHarga)} (${input.jumlahBeli} ${input.satuanBeli}) · oleh ${user.nama}`,
-    dedupKey: `pur-new-${purchaseId}`,
-    broadcastFcm: true,
-  });
   await enqueueSync('purchase', purchaseId, 'upsert', { purchase, expense });
 
   return purchase;
@@ -224,7 +218,6 @@ export async function recordPurchase(
 export async function cancelPurchase(purchaseId: string, user: User): Promise<void> {
   const purchase = await db.purchases.get(purchaseId);
   if (!purchase) return;
-  const ing = await db.ingredients.get(purchase.ingredientId);
 
   await db.transaction('rw', [db.purchases, db.expenses], async () => {
     await db.purchases.update(purchaseId, { dibatalkan: true });
@@ -241,11 +234,6 @@ export async function cancelPurchase(purchaseId: string, user: User): Promise<vo
     `Pembelian ${purchaseId}`,
     `Total Rp${purchase.totalHarga} dibatalkan`
   );
-  sendDeviceNotification({
-    title: `Pembelian Bahan Dibatalkan`,
-    body: `${ing?.nama || 'Bahan baku'} · ${formatRupiah(purchase.totalHarga)} dibatalkan oleh ${user.nama}`,
-    dedupKey: `pur-void-${purchaseId}`,
-  });
   await enqueueSync('purchase', purchaseId, 'void', { purchaseId });
 }
 

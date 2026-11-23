@@ -121,6 +121,7 @@ export const ExpensesPage: React.FC<ExpensesPageProps> = ({ user, activeShift, o
       title: `Pengeluaran: ${exp.categoryNama}`,
       body: `${formatRupiah(nom)} · ${exp.keterangan} (${user.nama})`,
       dedupKey: `exp-new-${id}`,
+      broadcastFcm: true,
     });
     await enqueueSync('expense', id, 'upsert', exp);
 

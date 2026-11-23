@@ -264,47 +264,16 @@ export async function startRealtimeTransactionNotifications(): Promise<void> {
         pullAllFromSupabase().catch(() => {});
       }
     )
-    // 3. Pembelian Bahan Baku Baru & Pembatalan Pembelian
+    // 3. Pembelian Bahan Baku Baru & Pembatalan Pembelian (cukup sinkron diam-diam, tanpa notif agar tidak spam)
     .on(
       'postgres_changes',
       {
-        event: 'INSERT',
+        event: '*',
         schema: 'public',
         table: 'purchases',
         filter: `outlet_id=eq.${outletId}`,
       },
-      (payload) => {
-        const row = payload.new as Record<string, any>;
-        if (!row?.id) return;
-        sendDeviceNotification({
-          title: `Pembelian Bahan Baku`,
-          body: `${formatRupiah(Number(row.total_harga) || 0)} (${row.jumlah_beli} ${row.satuan_beli}) · oleh ${row.pembuat_nama || '-'}`,
-          dedupKey: `pur-new-${row.id}`,
-        });
-        pullAllFromSupabase().catch(() => {});
-      }
-    )
-    .on(
-      'postgres_changes',
-      {
-        event: 'UPDATE',
-        schema: 'public',
-        table: 'purchases',
-        filter: `outlet_id=eq.${outletId}`,
-      },
-      async (payload) => {
-        const row = payload.new as Record<string, any>;
-        if (!row?.id) return;
-        if (row.dibatalkan) {
-          const localPur = await db.purchases.get(row.id);
-          if (!localPur || !localPur.dibatalkan) {
-            sendDeviceNotification({
-              title: `Pembelian Bahan Dibatalkan`,
-              body: `${formatRupiah(Number(row.total_harga) || 0)} (${row.jumlah_beli} ${row.satuan_beli}) dibatalkan`,
-              dedupKey: `pur-void-${row.id}`,
-            });
-          }
-        }
+      () => {
         pullAllFromSupabase().catch(() => {});
       }
     )

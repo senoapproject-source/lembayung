@@ -1039,21 +1039,18 @@ export async function pullAllFromSupabase(overrideOutletId?: string): Promise<{
   const shouldDiffNotify = !overrideOutletId && Boolean(settings?.outletId);
   let prevTxMap = new Map<string, Transaction>();
   let prevExpMap = new Map<string, Expense>();
-  let prevPurMap = new Map<string, Purchase>();
   let prevMenuMap = new Map<string, MenuItem>();
   let prevUserMap = new Map<string, User>();
 
   if (shouldDiffNotify) {
-    const [pTx, pExp, pPur, pMenu, pUser] = await Promise.all([
+    const [pTx, pExp, pMenu, pUser] = await Promise.all([
       db.transactions.toArray(),
       db.expenses.toArray(),
-      db.purchases.toArray(),
       db.menus.toArray(),
       db.users.toArray(),
     ]);
     prevTxMap = new Map(pTx.map((x) => [x.id, x]));
     prevExpMap = new Map(pExp.map((x) => [x.id, x]));
-    prevPurMap = new Map(pPur.map((x) => [x.id, x]));
     prevMenuMap = new Map(pMenu.map((x) => [x.id, x]));
     prevUserMap = new Map(pUser.map((x) => [x.id, x]));
   }
@@ -1158,23 +1155,6 @@ export async function pullAllFromSupabase(overrideOutletId?: string): Promise<{
           title: `Pengeluaran Dibatalkan`,
           body: `${exp.categoryNama} · ${fmtRp(exp.nominal)} (${exp.keterangan})`,
           dedupKey: `exp-void-${exp.id}`,
-        });
-      }
-    }
-
-    for (const pur of mappedPurchases) {
-      const prev = prevPurMap.get(pur.id);
-      if (!prev && !pur.dibatalkan && isFresh(pur.createdAt)) {
-        pendingNotifs.push({
-          title: `Pembelian Bahan Baku`,
-          body: `${fmtRp(pur.totalHarga)} (${pur.jumlahBeli} ${pur.satuanBeli}) · oleh ${pur.pembuatNama}`,
-          dedupKey: `pur-new-${pur.id}`,
-        });
-      } else if (prev && !prev.dibatalkan && pur.dibatalkan) {
-        pendingNotifs.push({
-          title: `Pembelian Bahan Dibatalkan`,
-          body: `${fmtRp(pur.totalHarga)} (${pur.jumlahBeli} ${pur.satuanBeli}) dibatalkan`,
-          dedupKey: `pur-void-${pur.id}`,
         });
       }
     }
