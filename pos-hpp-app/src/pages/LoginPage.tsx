@@ -20,6 +20,7 @@ import {
   validatePin,
 } from '../lib/validation';
 import { CuaninLogo } from '../components/CuaninLogo';
+import { PasswordInputWithRules } from '../components/PasswordInputWithRules';
 import { CustomSelect } from '../components/CustomSelect';
 import type { User } from '../types/models';
 import { Delete, KeyRound, LogIn, Mail, ShieldCheck, UserPlus } from 'lucide-react';
@@ -1029,17 +1030,12 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
                   <label className="block text-xs font-medium text-[#4a4947] mb-1">
                     Kata Sandi *
                   </label>
-                  <input
-                    type="password"
+                  <PasswordInputWithRules
                     value={regPassword}
-                    onChange={(e) => setRegPassword(e.target.value)}
+                    onChange={setRegPassword}
                     placeholder="Contoh: aBcd3fgh!"
-                    className="w-full h-10 border border-[#d6d3c8] rounded-[10px] px-3 text-sm"
-                    required
+                    inputClassName="w-full h-10 border border-[#d6d3c8] rounded-[10px] pl-3 pr-10 text-sm"
                   />
-                  <div className="text-[11px] text-[#6b6a68] mt-1">
-                    Min. 8 karakter: huruf besar, huruf kecil, angka &amp; simbol (misal: <code>aBcd3fgh!</code>)
-                  </div>
                 </div>
 
                 <label className="flex items-start gap-2 text-xs text-[#4a4947] pt-0.5">

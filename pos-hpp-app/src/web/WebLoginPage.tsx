@@ -22,6 +22,7 @@ import {
   validatePin,
 } from '../lib/validation';
 import { LembayungLogo } from '../components/CuaninLogo';
+import { PasswordInputWithRules } from '../components/PasswordInputWithRules';
 import type { User } from '../types/models';
 import {
   BarChart3,
@@ -604,13 +605,10 @@ export const WebLoginPage: React.FC<WebLoginPageProps> = ({ onLoginSuccess }) =>
                       <label className="block text-xs font-medium text-[#4a4947] mb-1">
                         Kata Sandi *
                       </label>
-                      <input
-                        type="password"
+                      <PasswordInputWithRules
                         value={regPassword}
-                        onChange={(e) => setRegPassword(e.target.value)}
+                        onChange={setRegPassword}
                         placeholder="Min. 8 karakter (Aa1!)"
-                        className="w-full h-10 border border-[#d6d3c8] rounded-xl px-3 text-sm"
-                        required
                       />
                     </div>
                     {error && (
@@ -737,13 +735,10 @@ export const WebLoginPage: React.FC<WebLoginPageProps> = ({ onLoginSuccess }) =>
                         className="w-full h-10 border border-[#d6d3c8] rounded-xl px-3 text-center font-bold tracking-widest"
                         required
                       />
-                      <input
-                        type="password"
+                      <PasswordInputWithRules
                         value={recNewPass}
-                        onChange={(e) => setRecNewPass(e.target.value)}
+                        onChange={setRecNewPass}
                         placeholder="Kata sandi baru (min. 8 karakter)"
-                        className="w-full h-10 border border-[#d6d3c8] rounded-xl px-3 text-sm"
-                        required
                       />
                     </>
                   )}
