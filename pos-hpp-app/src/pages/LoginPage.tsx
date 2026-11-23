@@ -89,7 +89,6 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
   const [recOtpSent, setRecOtpSent] = useState(false);
   const [recOtpInput, setRecOtpInput] = useState('');
   const [recNewPassword, setRecNewPassword] = useState('');
-  const [showRecNewPass, setShowRecNewPass] = useState(false);
   const [infoMessage, setInfoMessage] = useState('');
 
   const [error, setError] = useState('');
@@ -1244,26 +1243,12 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
                       <label className="block text-xs font-medium text-[#4a4947] mb-1">
                         Kata Sandi Baru *
                       </label>
-                      <div className="relative">
-                        <input
-                          type={showRecNewPass ? 'text' : 'password'}
-                          value={recNewPassword}
-                          onChange={(e) => setRecNewPassword(e.target.value)}
-                          placeholder="Contoh: aBcd3fgh!"
-                          className="w-full h-10 border border-[#d6d3c8] rounded-[10px] px-3 pr-20 text-sm"
-                          required
-                        />
-                        <button
-                          type="button"
-                          onClick={() => setShowRecNewPass((v) => !v)}
-                          className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-[#1F7A5A]"
-                        >
-                          {showRecNewPass ? 'Sembunyi' : 'Tampilkan'}
-                        </button>
-                      </div>
-                      <div className="text-[11px] text-[#6b6a68] mt-1">
-                        Min. 8 karakter: huruf besar, kecil, angka &amp; simbol.
-                      </div>
+                      <PasswordInputWithRules
+                        value={recNewPassword}
+                        onChange={setRecNewPassword}
+                        placeholder="Contoh: aBcd3fgh!"
+                        inputClassName="w-full h-10 border border-[#d6d3c8] rounded-[10px] pl-3 pr-10 text-sm"
+                      />
                     </div>
                   </>
                 )}
