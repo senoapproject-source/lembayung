@@ -33,17 +33,20 @@ if (!supabaseUrl || !supabaseKey) {
   process.exit(1);
 }
 
-// Jika Production -> wajib ambil app-release.apk; Jika Testing -> wajib ambil app-debug.apk
+// Jika Production -> wajib ambil app-release.apk terbaru; Jika Testing -> wajib ambil app-debug.apk
 const candidates = isProd
   ? [
-      path.join(ROOT_DIR, 'android', 'app', 'release', 'app-release.apk'),
       path.join(ROOT_DIR, 'android', 'app', 'build', 'outputs', 'apk', 'release', 'app-release.apk'),
+      path.join(ROOT_DIR, 'android', 'app', 'release', 'app-release.apk'),
     ]
   : [
       path.join(ROOT_DIR, 'android', 'app', 'build', 'outputs', 'apk', 'debug', 'app-debug.apk'),
     ];
 
-const apkPath = candidates.find((p) => fs.existsSync(p));
+const existingCandidates = candidates
+  .filter((p) => fs.existsSync(p))
+  .sort((a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs);
+const apkPath = existingCandidates[0];
 if (!apkPath) {
   console.error(
     isProd
