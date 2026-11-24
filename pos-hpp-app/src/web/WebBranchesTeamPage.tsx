@@ -31,6 +31,7 @@ interface WebBranchesTeamPageProps {
   settings?: AppSettings;
   branches: BranchInfo[];
   activeOutletId: string;
+  section?: 'branches' | 'team' | 'all';
   onBranchCreated: (branch: BranchInfo) => void;
   onSelectBranch: (outletId: string) => void;
 }
@@ -40,6 +41,7 @@ export const WebBranchesTeamPage: React.FC<WebBranchesTeamPageProps> = ({
   settings,
   branches,
   activeOutletId,
+  section = 'all',
   onBranchCreated,
   onSelectBranch,
 }) => {
@@ -416,7 +418,7 @@ export const WebBranchesTeamPage: React.FC<WebBranchesTeamPageProps> = ({
   return (
     <div className="flex flex-col gap-6">
       {/* Bagian 1: Manajemen Multi-Cabang (Khusus Owner) */}
-      {isOwner && (
+      {isOwner && section !== 'team' && (
         <div className="bg-white border border-[#e2e0d8] rounded-2xl p-5 flex flex-col gap-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
@@ -493,7 +495,8 @@ export const WebBranchesTeamPage: React.FC<WebBranchesTeamPageProps> = ({
         </div>
       )}
 
-      {/* Bagian 2: Manajemen Tim Cabang Aktif (Owner -> Manager & Kasir; Manager -> Kasir) */}
+      {/* Bagian 2: Manajemen Tim Usaha Lintas Cabang (Owner -> Manager & Kasir; Manager -> Kasir) */}
+      {section !== 'branches' && (
       <div className="bg-white border border-[#e2e0d8] rounded-2xl overflow-hidden">
         <div className="px-5 py-4 border-b border-[#eeece5] flex flex-wrap items-center justify-between gap-3">
           <div>
@@ -591,6 +594,7 @@ export const WebBranchesTeamPage: React.FC<WebBranchesTeamPageProps> = ({
           </table>
         </div>
       </div>
+      )}
 
       {/* Modal Tambah Cabang Baru */}
       {showAddBranch && (

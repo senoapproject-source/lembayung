@@ -34,6 +34,7 @@ import {
   Settings,
   Sun,
   Target,
+  Users,
   Wallet,
   Wifi,
   WifiOff,
@@ -47,6 +48,7 @@ export type WebTab =
   | 'ingredients'
   | 'target'
   | 'attendance'
+  | 'team'
   | 'branches'
   | 'settings';
 
@@ -198,11 +200,15 @@ export const WebDashboardShell: React.FC<WebDashboardShellProps> = ({
       title: 'Absensi Tim & Jadwal Shift',
       subtitle: 'Pantau kehadiran real-time, foto selfie masuk/pulang, koreksi lupa pulang, dan ekspor CSV',
     },
-    branches: {
-      title: isOwner ? 'Cabang & Tim' : 'Tim Kasir Cabang',
+    team: {
+      title: isOwner ? 'Tim & Karyawan' : 'Tim Kasir',
       subtitle: isOwner
-        ? 'Kelola cabang outlet, salin katalog menu, dan atur akun Manager & Kasir'
-        : 'Atur akun Kasir pada cabang tempat Anda bertugas',
+        ? '1 daftar tim lintas cabang (Pusat & semua Cabang) — tambah karyawan, atur jabatan/akses, & nonaktifkan akun'
+        : 'Kelola akun Kasir yang aktif di usaha Anda',
+    },
+    branches: {
+      title: 'Manajemen Cabang',
+      subtitle: 'Kelola daftar cabang outlet, ID Outlet perangkat kasir, dan salin katalog menu',
     },
     settings: {
       title: 'Pengaturan Outlet & Struk',
@@ -341,14 +347,25 @@ export const WebDashboardShell: React.FC<WebDashboardShellProps> = ({
               label="Absensi Tim"
             />
             <WebNavItem
-              active={activeTab === 'branches'}
+              active={activeTab === 'team'}
               onClick={() => {
                 if (isAllBranchesMode) setSelectedBranchKey(activeOutletId);
-                setActiveTab('branches');
+                setActiveTab('team');
               }}
-              icon={<Building2 size={16} />}
-              label={isOwner ? 'Cabang & Tim' : 'Tim Kasir'}
+              icon={<Users size={16} />}
+              label={isOwner ? 'Tim & Karyawan' : 'Tim Kasir'}
             />
+            {isOwner && (
+              <WebNavItem
+                active={activeTab === 'branches'}
+                onClick={() => {
+                  if (isAllBranchesMode) setSelectedBranchKey(activeOutletId);
+                  setActiveTab('branches');
+                }}
+                icon={<Building2 size={16} />}
+                label="Manajemen Cabang"
+              />
+            )}
             {isOwner && (
               <WebNavItem
                 active={activeTab === 'settings'}
@@ -552,12 +569,28 @@ export const WebDashboardShell: React.FC<WebDashboardShellProps> = ({
                 <AttendanceReportPage user={user} />
               </div>
             )}
-            {activeTab === 'branches' && (
+            {activeTab === 'team' && (
               <WebBranchesTeamPage
                 user={user}
                 settings={settings}
                 branches={branches}
                 activeOutletId={activeOutletId}
+                section="team"
+                onBranchCreated={(b) => {
+                  setBranches((prev) => [...prev, b]);
+                  setToastMsg(`Cabang "${b.namaCabang}" (${b.outletId}) berhasil dibuat!`);
+                  setTimeout(() => setToastMsg(''), 4000);
+                }}
+                onSelectBranch={handleBranchSwitch}
+              />
+            )}
+            {activeTab === 'branches' && isOwner && (
+              <WebBranchesTeamPage
+                user={user}
+                settings={settings}
+                branches={branches}
+                activeOutletId={activeOutletId}
+                section="branches"
                 onBranchCreated={(b) => {
                   setBranches((prev) => [...prev, b]);
                   setToastMsg(`Cabang "${b.namaCabang}" (${b.outletId}) berhasil dibuat!`);
