@@ -62,10 +62,10 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({ user, activeShift, onB
   };
 
   return (
-    <div className="px-5 pt-5 pb-6 flex flex-col gap-3.5">
-      <div className="flex justify-between items-center gap-2">
-        <div>
-          <h1 className="text-[22px] font-bold">Riwayat</h1>
+    <div className="px-3.5 sm:px-5 pt-4 sm:pt-5 pb-6 flex flex-col gap-3.5 w-full max-w-full overflow-x-hidden">
+      <div className="flex flex-wrap justify-between items-center gap-2">
+        <div className="min-w-0">
+          <h1 className="text-[20px] sm:text-[22px] font-bold">Riwayat</h1>
           <div className="text-xs text-[#6b6a68]">
             {user.role === 'owner' || user.role === 'manager'
               ? 'Kasir: semua · Owner & Manager dapat membatalkan (void) transaksi'
@@ -77,7 +77,7 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({ user, activeShift, onB
         <button
           type="button"
           onClick={onBack}
-          className="h-9 px-3.5 rounded-full border border-[#d6d3c8] bg-white text-[13px] font-medium"
+          className="h-9 px-3 rounded-full border border-[#d6d3c8] bg-white text-xs sm:text-[13px] font-medium whitespace-nowrap shrink-0"
         >
           ‹ Kembali
         </button>

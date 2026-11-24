@@ -442,20 +442,20 @@ export const PosPage: React.FC<PosPageProps> = ({ user, onOpenHistory }) => {
       {/* ====================================================================
           KOLOM KIRI: KATALOG MENU (FULL DI HP, FLEKSIBEL DI TABLET)
          ==================================================================== */}
-      <div className="flex-1 overflow-y-auto px-5 pt-5 pb-28 md:pb-6 flex flex-col gap-3.5 min-w-0">
+      <div className="flex-1 overflow-y-auto overflow-x-hidden px-3.5 sm:px-5 pt-4 sm:pt-5 pb-28 md:pb-6 flex flex-col gap-3.5 min-w-0">
         {/* Header */}
-        <div className="flex justify-between items-center gap-2">
-          <div>
-            <h1 className="text-[22px] font-bold">Kasir</h1>
-            <div className="text-xs text-[#6b6a68]">
-              {settings?.namaUsaha ?? 'Warung Sari'} · {user.nama}
+        <div className="flex flex-wrap justify-between items-center gap-2">
+          <div className="min-w-0">
+            <h1 className="text-[20px] sm:text-[22px] font-bold">Kasir</h1>
+            <div className="text-xs text-[#6b6a68] truncate">
+              {settings?.namaUsaha ?? 'Lembayung'} · {user.nama}
             </div>
           </div>
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5 shrink-0">
             <button
               type="button"
               onClick={() => setShowSavedListModal(true)}
-              className="h-9 px-3 rounded-full border border-[#1F7A5A] bg-[#e4f1ea] text-[#1F7A5A] text-xs font-semibold flex items-center gap-1"
+              className="h-9 px-2.5 sm:px-3 rounded-full border border-[#1F7A5A] bg-[#e4f1ea] text-[#1F7A5A] text-xs font-semibold flex items-center gap-1 whitespace-nowrap"
             >
               <FolderOpen size={14} />
               Disimpan ({savedOrders.length})
@@ -463,7 +463,7 @@ export const PosPage: React.FC<PosPageProps> = ({ user, onOpenHistory }) => {
             <button
               type="button"
               onClick={onOpenHistory}
-              className="h-9 px-3 rounded-full border border-[#d6d3c8] bg-white text-xs font-medium text-[#1f1e1d]"
+              className="h-9 px-2.5 sm:px-3 rounded-full border border-[#d6d3c8] bg-white text-xs font-medium text-[#1f1e1d] whitespace-nowrap"
             >
               Riwayat
             </button>

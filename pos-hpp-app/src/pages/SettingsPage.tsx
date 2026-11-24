@@ -438,7 +438,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   const isNativeApp = Capacitor.isNativePlatform();
 
   return (
-    <div className="px-5 pt-5 pb-8 flex flex-col gap-3">
+    <div className="px-3.5 sm:px-5 pt-4 sm:pt-5 pb-8 flex flex-col gap-3 w-full max-w-full overflow-x-hidden">
       {isNativeApp && (
         <div className="flex justify-between items-center gap-2">
           <div>

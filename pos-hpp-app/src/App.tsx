@@ -553,7 +553,7 @@ export function App() {
   );
 
   return (
-    <div className="h-screen w-screen bg-[#faf9f5] safe-frame flex flex-col md:flex-row overflow-hidden">
+    <div className="h-[100dvh] w-full max-w-full bg-[#faf9f5] safe-frame flex flex-col md:flex-row overflow-hidden">
       {splashOverlay}
       {/* ====================================================================
           SIDEBAR NAVIGASI UNTUK TABLET & DESKTOP (md:flex)
@@ -704,34 +704,34 @@ export function App() {
       {/* ====================================================================
           HEADER ATAS KHUSUS LAYAR HP (md:hidden)
          ==================================================================== */}
-      <div className="md:hidden bg-white border-b border-[#e2e0d8] px-3.5 py-2.5 flex justify-between items-center gap-2 text-[11px] shrink-0">
+      <div className="md:hidden bg-white border-b border-[#e2e0d8] px-2.5 sm:px-3.5 py-2 flex justify-between items-center gap-1.5 text-[11px] shrink-0 w-full max-w-full overflow-hidden">
         <div className="flex items-center gap-1.5 min-w-0">
-          <div className="flex items-center gap-1.5 pr-1.5 border-r border-[#e2e0d8] shrink-0">
+          <div className="flex items-center gap-1 pr-1.5 border-r border-[#e2e0d8] min-w-0">
             <CuaninLogo size={20} />
-            <span className="font-bold text-xs text-[#1f1e1d]">Lembayung</span>
-            <span className="text-[10px] font-medium text-[#6b6a68]">
+            <span className="font-bold text-xs text-[#1f1e1d] truncate">Lembayung</span>
+            <span className="text-[10px] font-medium text-[#6b6a68] shrink-0">
               v{getInstalledAppVersion()}
             </span>
             {getAppEnvironment() === 'testing' && (
-              <span className="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded bg-[#fbeed9] text-[#7a4300]">
+              <span className="text-[9px] font-bold uppercase px-1 py-0.5 rounded bg-[#fbeed9] text-[#7a4300] shrink-0">
                 TEST
               </span>
             )}
           </div>
-          <div className="truncate">{syncStatusBadge}</div>
+          <div className="shrink-0">{syncStatusBadge}</div>
         </div>
-        <div className="flex items-center gap-1 shrink-0">
+        <div className="flex items-center gap-0.5 sm:gap-1 shrink-0">
           {!isOwner && activeCashierShift ? (
             <button
               type="button"
               onClick={() => setShowCloseShiftModal(true)}
-              className="px-2 py-1 rounded-full bg-[#fbe4e1] text-[#9b1c12] font-semibold text-[11px] shrink-0"
+              className="px-2 py-1 rounded-full bg-[#fbe4e1] text-[#9b1c12] font-semibold text-[11px] shrink-0 whitespace-nowrap"
             >
               Tutup Kasir
             </button>
           ) : (
-            <span className="px-2 py-0.5 rounded-full bg-[#ece9e0] text-[#4a4947] font-semibold max-w-[115px] truncate">
-              {currentUser.nama} ({isOwner ? 'Owner' : 'Kasir'})
+            <span className="px-2 py-0.5 rounded-full bg-[#ece9e0] text-[#4a4947] font-semibold max-w-[78px] sm:max-w-[120px] truncate">
+              {currentUser.nama}
             </span>
           )}
           <button

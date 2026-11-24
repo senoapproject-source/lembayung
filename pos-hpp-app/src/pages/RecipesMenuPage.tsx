@@ -257,13 +257,13 @@ export const RecipesMenuPage: React.FC<RecipesMenuPageProps> = ({ user }) => {
   const modalActualMargin = modalHasHpp ? calcActualMargin(Number(mHargaJual) || 0, modalHpp) : 0;
 
   return (
-    <div className="px-5 pt-5 pb-6 flex flex-col gap-3.5">
-      <div className="flex justify-between items-center gap-2">
-        <h1 className="text-[22px] font-bold">Resep &amp; Menu</h1>
+    <div className="px-3.5 sm:px-5 pt-4 sm:pt-5 pb-6 flex flex-col gap-3.5 w-full max-w-full overflow-x-hidden">
+      <div className="flex flex-wrap justify-between items-center gap-2">
+        <h1 className="text-[20px] sm:text-[22px] font-bold">Resep &amp; Menu</h1>
         <button
           type="button"
           onClick={subTab === 'menu' ? openNewMenuModal : openNewRecipeModal}
-          className="h-9 px-3.5 rounded-full bg-[#1F7A5A] text-white text-[13px] font-medium"
+          className="h-9 px-3.5 rounded-full bg-[#1F7A5A] text-white text-[13px] font-medium whitespace-nowrap"
         >
           {subTab === 'menu' ? '+ Menu' : '+ Resep'}
         </button>

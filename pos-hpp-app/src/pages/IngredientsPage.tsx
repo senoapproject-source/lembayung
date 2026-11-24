@@ -255,15 +255,15 @@ export const IngredientsPage: React.FC<IngredientsPageProps> = ({ user }) => {
   const sumQtyN = nSlice.reduce((s, p) => s + p.satuanDasarDidapat, 0);
 
   return (
-    <div className="px-5 pt-5 pb-6 flex flex-col gap-3.5">
-      <div className="flex items-center justify-between gap-2">
-        <h1 className="text-[22px] font-bold">Bahan Baku</h1>
-        <div className="flex items-center gap-2">
+    <div className="px-3.5 sm:px-5 pt-4 sm:pt-5 pb-6 flex flex-col gap-3.5 w-full max-w-full overflow-x-hidden">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h1 className="text-[20px] sm:text-[22px] font-bold">Bahan Baku</h1>
+        <div className="flex flex-wrap items-center gap-1.5">
           {isManagerOrOwner && (
             <button
               type="button"
               onClick={openAddIngredientModal}
-              className="h-9 px-3 rounded-full border border-[#d6d3c8] bg-white text-xs font-medium text-[#1f1e1d] flex items-center gap-1"
+              className="h-9 px-2.5 sm:px-3 rounded-full border border-[#d6d3c8] bg-white text-xs font-medium text-[#1f1e1d] flex items-center gap-1 whitespace-nowrap"
             >
               <Plus size={14} /> Bahan
             </button>
@@ -271,7 +271,7 @@ export const IngredientsPage: React.FC<IngredientsPageProps> = ({ user }) => {
           <button
             type="button"
             onClick={() => openPurchaseModal()}
-            className="h-9 px-3.5 rounded-full bg-[#1F7A5A] text-white text-[13px] font-medium flex items-center gap-1"
+            className="h-9 px-3 rounded-full bg-[#1F7A5A] text-white text-xs sm:text-[13px] font-medium flex items-center gap-1 whitespace-nowrap"
           >
             + Pembelian
           </button>

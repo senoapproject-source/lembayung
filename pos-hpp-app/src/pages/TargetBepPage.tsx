@@ -102,20 +102,20 @@ export const TargetBepPage: React.FC<TargetBepPageProps> = ({ onBack }) => {
       : 'bg-[#fbe4e1] text-[#9b1c12]';
 
   return (
-    <div className="px-5 pt-5 pb-6 flex flex-col gap-3">
-      <div className="flex justify-between items-center gap-2">
-        <div>
-          <h1 className="text-[22px] font-bold">Target &amp; BEP</h1>
+    <div className="px-3.5 sm:px-5 pt-4 sm:pt-5 pb-6 flex flex-col gap-3 w-full max-w-full overflow-x-hidden">
+      <div className="flex flex-wrap justify-between items-center gap-2">
+        <div className="min-w-0">
+          <h1 className="text-[20px] sm:text-[22px] font-bold">Target &amp; BEP</h1>
           <div className="text-xs text-[#6b6a68]">
             {monthLabel} · sisa {sisaHari} hari
           </div>
         </div>
-        <div className="flex gap-1.5">
+        <div className="flex flex-wrap gap-1.5 shrink-0">
           {onBack && (
             <button
               type="button"
               onClick={onBack}
-              className="h-9 px-3 rounded-full border border-[#d6d3c8] bg-white text-[13px] font-medium"
+              className="h-9 px-2.5 sm:px-3 rounded-full border border-[#d6d3c8] bg-white text-xs sm:text-[13px] font-medium whitespace-nowrap"
             >
               ‹ Laporan
             </button>
@@ -123,7 +123,7 @@ export const TargetBepPage: React.FC<TargetBepPageProps> = ({ onBack }) => {
           <button
             type="button"
             onClick={openEdit}
-            className="h-9 px-3 rounded-full border border-[#d6d3c8] bg-white text-[13px] font-medium"
+            className="h-9 px-2.5 sm:px-3 rounded-full border border-[#d6d3c8] bg-white text-xs sm:text-[13px] font-medium whitespace-nowrap"
           >
             Ubah target
           </button>

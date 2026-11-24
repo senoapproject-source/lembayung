@@ -288,15 +288,15 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
   const maxBar = Math.max(summary.omzet, summary.totalPengeluaran, 1);
 
   return (
-    <div className="px-5 pt-5 pb-6 flex flex-col gap-3">
+    <div className="px-3.5 sm:px-5 pt-4 sm:pt-5 pb-6 flex flex-col gap-3 w-full max-w-full overflow-x-hidden">
       {/* Header */}
       <div className="flex justify-between items-center gap-2 flex-wrap">
-        <h1 className="text-[22px] font-bold">Laporan</h1>
-        <div className="flex items-center gap-1.5">
+        <h1 className="text-[20px] sm:text-[22px] font-bold">Laporan</h1>
+        <div className="flex flex-wrap items-center gap-1.5">
           <button
             type="button"
             onClick={onOpenTargetBep}
-            className="h-9 px-3 rounded-full bg-[#e4f1ea] text-[#1F7A5A] text-xs font-semibold flex items-center gap-1"
+            className="h-9 px-2.5 sm:px-3 rounded-full bg-[#e4f1ea] text-[#1F7A5A] text-xs font-semibold flex items-center gap-1 whitespace-nowrap"
           >
             <Target size={14} /> Target &amp; BEP
           </button>
@@ -304,14 +304,14 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
             type="button"
             disabled={emailSending}
             onClick={handleSendSummaryEmail}
-            className="h-9 px-3 rounded-full border border-[#d6d3c8] text-[#1F7A5A] bg-white text-xs font-semibold flex items-center gap-1 disabled:opacity-50"
+            className="h-9 px-2.5 sm:px-3 rounded-full border border-[#d6d3c8] text-[#1F7A5A] bg-white text-xs font-semibold flex items-center gap-1 disabled:opacity-50 whitespace-nowrap"
           >
             <Mail size={13} /> {emailSending ? 'Mengirim...' : 'Kirim Email'}
           </button>
           <button
             type="button"
             onClick={handleExportCsv}
-            className="h-9 px-3 rounded-full border border-[#d6d3c8] text-[#1f1e1d] bg-white text-xs font-medium"
+            className="h-9 px-2.5 sm:px-3 rounded-full border border-[#d6d3c8] text-[#1f1e1d] bg-white text-xs font-medium whitespace-nowrap"
           >
             Ekspor
           </button>
