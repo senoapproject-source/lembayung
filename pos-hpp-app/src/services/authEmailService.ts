@@ -1,5 +1,5 @@
 import { db } from '../db/database';
-import { getSupabaseClient, getSupabaseConfig } from './syncService';
+import { getSupabaseClient, getSupabaseConfig, getWebBackofficeUrl } from './syncService';
 import type { CashierShift } from '../types/models';
 
 export interface AuthEmailResponse {
@@ -221,6 +221,8 @@ export async function sendEmployeeCredentialsEmail(params: {
   namaUsaha: string;
   namaCabang?: string;
   outletId: string;
+  backofficeUrl?: string;
+  reason?: 'new' | 'promoted_to_manager' | 'password_reset';
 }): Promise<AuthEmailResponse> {
   return invokeAuthEmailFunction({
     action: 'send_employee_credentials',
@@ -233,5 +235,7 @@ export async function sendEmployeeCredentialsEmail(params: {
     namaUsaha: params.namaUsaha.trim(),
     namaCabang: params.namaCabang?.trim() || 'Pusat',
     outletId: params.outletId.trim().toUpperCase(),
+    backofficeUrl: params.backofficeUrl || getWebBackofficeUrl(),
+    reason: params.reason || 'new',
   });
 }

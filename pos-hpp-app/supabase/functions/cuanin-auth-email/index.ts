@@ -1178,7 +1178,7 @@ Deno.serve(async (req: Request) => {
     }
 
     // =========================================================================
-    // 10b. KIRIM EMAIL KREDENSIAL KARYAWAN BARU (USERNAME, PIN, & PASSWORD MANAGER)
+    // 10b. KIRIM EMAIL KREDENSIAL KARYAWAN (BARU / PROMOSI MANAGER / RESET SANDI)
     // =========================================================================
     if (action === 'send_employee_credentials') {
       const email = String(payload.email || '').trim().toLowerCase();
@@ -1190,19 +1190,56 @@ Deno.serve(async (req: Request) => {
       const namaUsaha = String(payload.namaUsaha || 'Lembayung').trim();
       const namaCabang = String(payload.namaCabang || 'Pusat').trim();
       const outletId = String(payload.outletId || '').trim().toUpperCase();
+      const backofficeUrl = String(payload.backofficeUrl || 'https://lembayung-so1.pages.dev').trim();
+      const reason = String(payload.reason || 'new').trim();
 
       if (!email || !username || !pin) {
         return jsonRes({ success: false, error: 'Email, username, dan PIN wajib diisi.' }, 200);
       }
 
       const roleLabel = role === 'manager' ? 'Manager' : 'Kasir';
+      const heading =
+        reason === 'promoted_to_manager'
+          ? 'Selamat! Jabatan Anda Kini Manager'
+          : reason === 'password_reset'
+          ? 'Kata Sandi Manager Diperbarui'
+          : `Akun ${roleLabel} Anda Sudah Aktif`;
+
+      const introText =
+        reason === 'promoted_to_manager'
+          ? `Halo <strong>${escapeHtml(nama)}</strong>, jabatan Anda di <strong>${escapeHtml(namaUsaha)} (${escapeHtml(namaCabang)})</strong> telah dinaikkan menjadi <strong>Manager</strong>. Berikut informasi akun dan akses Website Backoffice Anda:`
+          : reason === 'password_reset'
+          ? `Halo <strong>${escapeHtml(nama)}</strong>, kata sandi akun <strong>Manager</strong> Anda di <strong>${escapeHtml(namaUsaha)} (${escapeHtml(namaCabang)})</strong> telah di-reset oleh Owner. Gunakan kata sandi baru berikut untuk masuk:`
+          : `Halo <strong>${escapeHtml(nama)}</strong>, Anda telah didaftarkan sebagai <strong>${roleLabel}</strong> di <strong>${escapeHtml(namaUsaha)} (${escapeHtml(namaCabang)})</strong>. Berikut informasi akun pribadi Anda (mohon jaga kerahasiaannya):`;
+
+      const subject =
+        reason === 'promoted_to_manager'
+          ? `[Lembayung] Selamat! Akses Manager & Web Backoffice ${namaUsaha}`
+          : reason === 'password_reset'
+          ? `[Lembayung] Kata Sandi Baru Manager di ${namaUsaha}`
+          : `[Lembayung] Akun ${roleLabel} Anda di ${namaUsaha} — Username & PIN`;
+
       const passwordRow =
         role === 'manager' && password
           ? `
             <tr>
-              <td style="padding:8px 0;color:#6b6a68;font-size:13px;">Kata Sandi Sementara</td>
-              <td style="padding:8px 0;font-weight:700;font-family:monospace;font-size:14px;color:#1f1e1d;text-align:right;">${password}</td>
+              <td style="padding:8px 0;color:#6b6a68;font-size:13px;">Kata Sandi Web Backoffice</td>
+              <td style="padding:8px 0;font-weight:700;font-family:monospace;font-size:14px;color:#1f1e1d;text-align:right;">${escapeHtml(password)}</td>
             </tr>
+          `
+          : '';
+
+      const backofficeSection =
+        role === 'manager'
+          ? `
+            <div style="margin:16px 0;text-align:center;">
+              <a href="${escapeHtml(backofficeUrl)}" target="_blank" rel="noopener noreferrer" style="display:inline-block;background:#1F7A5A;color:#ffffff;text-decoration:none;font-weight:700;font-size:13px;padding:11px 22px;border-radius:10px;">
+                Buka Website Backoffice
+              </a>
+              <div style="margin-top:8px;font-size:11px;color:#6b6a68;">
+                Atau buka link: <a href="${escapeHtml(backofficeUrl)}" style="color:#1F7A5A;font-weight:600;">${escapeHtml(backofficeUrl)}</a>
+              </div>
+            </div>
           `
           : '';
 
@@ -1210,31 +1247,36 @@ Deno.serve(async (req: Request) => {
         <div style="font-family:Inter,Arial,sans-serif;max-width:520px;margin:0 auto;padding:24px;background:#faf9f5;color:#1f1e1d;">
           <div style="background:#ffffff;border:1px solid #e2e0d8;border-radius:16px;padding:24px;">
             <div style="font-size:12px;font-weight:700;color:#1F7A5A;text-transform:uppercase;letter-spacing:0.06em;">Lembayung POS</div>
-            <h2 style="margin:8px 0 6px;font-size:20px;color:#1f1e1d;">Akun ${roleLabel} Anda Sudah Aktif</h2>
+            <h2 style="margin:8px 0 6px;font-size:20px;color:#1f1e1d;">${heading}</h2>
             <p style="margin:0 0 18px;font-size:13px;color:#4a4947;line-height:1.5;">
-              Halo <strong>${nama}</strong>, Anda telah didaftarkan sebagai <strong>${roleLabel}</strong> di <strong>${namaUsaha} (${namaCabang})</strong>. Berikut informasi akun pribadi Anda (mohon jaga kerahasiaannya):
+              ${introText}
             </p>
             <div style="background:#f4f9f6;border:1px solid #c5dfd1;border-radius:12px;padding:14px 16px;margin-bottom:16px;">
               <table style="width:100%;border-collapse:collapse;">
                 <tr>
                   <td style="padding:8px 0;color:#6b6a68;font-size:13px;">Kode Toko (ID Outlet)</td>
-                  <td style="padding:8px 0;font-weight:700;font-family:monospace;font-size:14px;color:#1F7A5A;text-align:right;">${outletId || '-'}</td>
+                  <td style="padding:8px 0;font-weight:700;font-family:monospace;font-size:14px;color:#1F7A5A;text-align:right;">${escapeHtml(outletId || '-')}</td>
+                </tr>
+                <tr>
+                  <td style="padding:8px 0;color:#6b6a68;font-size:13px;">Email Login</td>
+                  <td style="padding:8px 0;font-weight:600;font-size:13px;color:#1f1e1d;text-align:right;">${escapeHtml(email)}</td>
                 </tr>
                 <tr>
                   <td style="padding:8px 0;color:#6b6a68;font-size:13px;">Username</td>
-                  <td style="padding:8px 0;font-weight:700;font-family:monospace;font-size:14px;color:#1f1e1d;text-align:right;">${username}</td>
+                  <td style="padding:8px 0;font-weight:700;font-family:monospace;font-size:14px;color:#1f1e1d;text-align:right;">${escapeHtml(username)}</td>
                 </tr>
                 <tr>
                   <td style="padding:8px 0;color:#6b6a68;font-size:13px;">PIN Pribadi (6 Angka)</td>
-                  <td style="padding:8px 0;font-weight:800;font-family:monospace;font-size:18px;letter-spacing:0.2em;color:#1F7A5A;text-align:right;">${pin}</td>
+                  <td style="padding:8px 0;font-weight:800;font-family:monospace;font-size:18px;letter-spacing:0.2em;color:#1F7A5A;text-align:right;">${escapeHtml(pin)}</td>
                 </tr>
                 ${passwordRow}
               </table>
             </div>
+            ${backofficeSection}
             <p style="margin:0;font-size:12px;color:#6b6a68;line-height:1.5;">
               ${
                 role === 'manager'
-                  ? 'Gunakan Email & Kata Sandi di atas untuk masuk ke Website Backoffice atau konfirmasi login Manager di aplikasi. Kata sandi dapat diubah kapan saja melalui menu Pengaturan.'
+                  ? 'Gunakan Email & Kata Sandi di atas untuk masuk ke Website Backoffice atau konfirmasi login Manager di aplikasi. PIN pribadi tetap digunakan untuk absen & akses aplikasi.'
                   : 'Gunakan PIN 6 angka di atas untuk Absen Masuk/Pulang dan Buka Kasir pada perangkat kasir toko.'
               }
             </p>
@@ -1245,13 +1287,13 @@ Deno.serve(async (req: Request) => {
       await sendBrevoEmail({
         toEmail: email,
         toName: nama,
-        subject: `[Lembayung] Akun ${roleLabel} Anda di ${namaUsaha} — Username & PIN`,
+        subject,
         htmlContent,
       });
 
       return jsonRes({
         success: true,
-        message: `Username & PIN berhasil dikirim ke email ${email}.`,
+        message: `Informasi akun berhasil dikirim ke email ${email}.`,
       });
     }
 

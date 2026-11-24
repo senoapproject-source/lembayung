@@ -226,6 +226,12 @@ export function getAppEnvironment(): 'testing' | 'production' {
   return envMode === 'production' ? 'production' : 'testing';
 }
 
+export function getWebBackofficeUrl(): string {
+  return getAppEnvironment() === 'production'
+    ? 'https://lembayung-so1.pages.dev'
+    : 'https://lembayung-testing.pages.dev';
+}
+
 export function getSupabaseConfig(settings?: AppSettings): {
   url: string;
   anonKey: string;

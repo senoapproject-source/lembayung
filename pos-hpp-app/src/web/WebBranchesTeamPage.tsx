@@ -4,7 +4,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { db, hashPassword } from '../db/database';
 import { addAuditLog, enqueueSync } from '../db/actions';
 import { createNewBranch } from '../services/branchService';
-import { deleteUserFromSupabase } from '../services/syncService';
+import { deleteUserFromSupabase, getWebBackofficeUrl } from '../services/syncService';
 import { validateEmail, validatePassword, validatePin } from '../lib/validation';
 import {
   findDuplicatePinOwner,
@@ -59,7 +59,6 @@ export const WebBranchesTeamPage: React.FC<WebBranchesTeamPageProps> = ({
   const [showUserModal, setShowUserModal] = useState(false);
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [uNama, setUNama] = useState('');
-  const [uUsername, setUUsername] = useState('');
   const [uEmail, setUEmail] = useState('');
   const [uNoHp, setUNoHp] = useState('');
   const [uRole, setURole] = useState<'manager' | 'kasir'>('kasir');
@@ -70,6 +69,7 @@ export const WebBranchesTeamPage: React.FC<WebBranchesTeamPageProps> = ({
   const [uActive, setUActive] = useState(true);
   const [userErr, setUserErr] = useState('');
   const [createdCredModal, setCreatedCredModal] = useState<{
+    title?: string;
     nama: string;
     role: 'manager' | 'kasir';
     username: string;
@@ -77,6 +77,7 @@ export const WebBranchesTeamPage: React.FC<WebBranchesTeamPageProps> = ({
     password?: string;
     email: string;
     emailSent: boolean;
+    backofficeUrl?: string;
   } | null>(null);
 
   const handleCopyOutlet = async (oid: string) => {
@@ -121,7 +122,6 @@ export const WebBranchesTeamPage: React.FC<WebBranchesTeamPageProps> = ({
   const openAddUser = () => {
     setEditingUser(null);
     setUNama('');
-    setUUsername('');
     setUEmail('');
     setUNoHp('');
     setURole('kasir');
@@ -138,7 +138,6 @@ export const WebBranchesTeamPage: React.FC<WebBranchesTeamPageProps> = ({
     if (!isOwner && target.role !== 'kasir') return;
     setEditingUser(target);
     setUNama(target.nama);
-    setUUsername(target.username);
     setUEmail(target.email || '');
     setUNoHp(target.noHp || '');
     setURole(target.role === 'manager' ? 'manager' : 'kasir');
@@ -164,75 +163,95 @@ export const WebBranchesTeamPage: React.FC<WebBranchesTeamPageProps> = ({
 
     const nowIso = new Date().toISOString();
     if (editingUser) {
-      const cleanUsername = uUsername.trim();
-      if (!cleanUsername) {
-        setUserErr('Username wajib diisi.');
-        return;
-      }
-      const dup = users.find(
-        (u) =>
-          u.id !== editingUser.id &&
-          u.username.trim().toLowerCase() === cleanUsername.toLowerCase()
-      );
-      if (dup) {
-        setUserErr(`Username "${cleanUsername}" sudah digunakan oleh ${dup.nama}.`);
-        return;
-      }
+      // Karyawan (Kasir / Manager): identitas, email, dan PIN DIKUNCI — hanya ubah peran (Owner), hak akses, dan status aktif
+      if (editingUser.role !== 'owner') {
+        const finalRole: 'manager' | 'kasir' = isOwner ? uRole : 'kasir';
+        const isPromotedToManager = editingUser.role === 'kasir' && finalRole === 'manager';
+        const promotedPassword = isPromotedToManager ? generateStrongPassword() : undefined;
 
-      const finalRole =
-        editingUser.role === 'owner' ? 'owner' : isOwner ? uRole : 'kasir';
+        const patch: Partial<User> = {
+          role: finalRole,
+          canDiscount: finalRole === 'kasir' ? uCanDiscount : true,
+          canRecordExpense: finalRole === 'kasir' ? uCanExpense : true,
+          active: uActive,
+          updatedAt: nowIso,
+        };
+        if (promotedPassword) {
+          patch.passwordHash = await hashPassword(promotedPassword);
+        }
 
-      if (cleanEmail) {
-        const eErr = validateEmail(cleanEmail);
-        if (eErr) return setUserErr(eErr);
-        const dupEmailLocal = users.find(
-          (u) =>
-            u.id !== editingUser.id &&
-            (u.email || '').trim().toLowerCase() === cleanEmail
+        await db.users.update(editingUser.id, patch);
+        await addAuditLog(
+          user,
+          isPromotedToManager ? 'PROMOSI_MANAGER' : 'UBAH_AKSES_PENGGUNA',
+          editingUser.nama,
+          `Role: ${finalRole} · Aktif: ${uActive}`
         );
-        if (dupEmailLocal) {
-          return setUserErr(
-            `Email "${cleanEmail}" sudah digunakan oleh ${dupEmailLocal.nama}. Setiap akun wajib menggunakan email yang berbeda.`
-          );
+        await enqueueSync('master', editingUser.id, 'upsert', { ...patch, isUser: true });
+
+        if (isPromotedToManager && promotedPassword) {
+          const backofficeUrl = getWebBackofficeUrl();
+          let emailSent = false;
+          if (navigator.onLine && editingUser.email) {
+            const mailRes = await sendEmployeeCredentialsEmail({
+              email: editingUser.email,
+              nama: editingUser.nama,
+              role: 'manager',
+              username: editingUser.username,
+              pin: editingUser.pin || '-',
+              password: promotedPassword,
+              namaUsaha: settings?.namaUsaha || 'Lembayung',
+              namaCabang: settings?.namaCabang || 'Pusat',
+              outletId: activeOutletId || settings?.outletId || '',
+              backofficeUrl,
+              reason: 'promoted_to_manager',
+            }).catch(() => ({ success: false }));
+            emailSent = Boolean(mailRes.success);
+          }
+          setShowUserModal(false);
+          setCreatedCredModal({
+            title: 'Promosi ke Manager Berhasil',
+            nama: editingUser.nama,
+            role: 'manager',
+            username: editingUser.username,
+            pin: editingUser.pin || '-',
+            password: promotedPassword,
+            email: editingUser.email || '-',
+            emailSent,
+            backofficeUrl,
+          });
+          return;
         }
-        const dupEmailCloud = await checkEmailDuplicateInCloud(cleanEmail, editingUser.id);
-        if (dupEmailCloud) return setUserErr(dupEmailCloud);
+
+        setShowUserModal(false);
+        return;
       }
 
-      const effectivePin = isOwner ? uPin.trim() : (editingUser.pin || '');
-      if (isOwner) {
-        const pinErr = validatePin(effectivePin);
-        if (pinErr) return setUserErr(pinErr);
-        const dupPin = findDuplicatePinOwner(effectivePin, users, editingUser.id);
-        if (dupPin) {
-          return setUserErr(
-            `PIN "${effectivePin}" sudah dipakai oleh ${dupPin.nama}. Setiap akun wajib memiliki PIN 6 angka yang unik.`
-          );
-        }
+      // Edit akun Owner sendiri (email tetap dikunci agar unik)
+      const effectivePin = uPin.trim();
+      const pinErr = validatePin(effectivePin);
+      if (pinErr) return setUserErr(pinErr);
+      const dupPin = findDuplicatePinOwner(effectivePin, users, editingUser.id);
+      if (dupPin) {
+        return setUserErr(
+          `PIN "${effectivePin}" sudah dipakai oleh ${dupPin.nama}. Setiap akun wajib memiliki PIN 6 angka yang unik.`
+        );
       }
-
-      if ((finalRole === 'owner' || finalRole === 'manager') && uPassword.trim()) {
+      if (uPassword.trim()) {
         const passErr = validatePassword(uPassword);
         if (passErr) return setUserErr(passErr);
       }
 
       const patch: Partial<User> = {
         nama: cleanNama,
-        username: cleanUsername,
-        email: cleanEmail || undefined,
-        noHp: cleanNoHp || undefined,
-        role: finalRole,
-        pin: effectivePin || undefined,
-        canDiscount: finalRole === 'kasir' ? uCanDiscount : true,
-        canRecordExpense: finalRole === 'kasir' ? uCanExpense : true,
-        active: uActive,
+        pin: effectivePin,
         updatedAt: nowIso,
       };
-      if ((finalRole === 'owner' || finalRole === 'manager') && uPassword.trim()) {
+      if (uPassword.trim()) {
         patch.passwordHash = await hashPassword(uPassword);
       }
       await db.users.update(editingUser.id, patch);
-      await addAuditLog(user, 'UBAH_PENGGUNA', cleanNama, `Role: ${finalRole}`);
+      await addAuditLog(user, 'UBAH_PENGGUNA', cleanNama, 'Pembaruan profil Owner');
       await enqueueSync('master', editingUser.id, 'upsert', { ...patch, isUser: true });
       setShowUserModal(false);
       return;
@@ -281,6 +300,7 @@ export const WebBranchesTeamPage: React.FC<WebBranchesTeamPageProps> = ({
     await addAuditLog(user, 'TAMBAH_PENGGUNA', cleanNama, `Role: ${finalRole} · ${cleanEmail}`);
     await enqueueSync('master', id, 'upsert', { ...newUser, isUser: true });
 
+    const backofficeUrl = getWebBackofficeUrl();
     let emailSent = false;
     if (navigator.onLine) {
       const mailRes = await sendEmployeeCredentialsEmail({
@@ -293,6 +313,8 @@ export const WebBranchesTeamPage: React.FC<WebBranchesTeamPageProps> = ({
         namaUsaha: settings?.namaUsaha || 'Lembayung',
         namaCabang: settings?.namaCabang || 'Pusat',
         outletId: activeOutletId || settings?.outletId || '',
+        backofficeUrl,
+        reason: 'new',
       }).catch(() => ({ success: false }));
       emailSent = Boolean(mailRes.success);
     }
@@ -300,6 +322,7 @@ export const WebBranchesTeamPage: React.FC<WebBranchesTeamPageProps> = ({
     setShowUserModal(false);
     if (isOwner) {
       setCreatedCredModal({
+        title: 'Karyawan Berhasil Didaftarkan',
         nama: cleanNama,
         role: finalRole,
         username: generatedUsername,
@@ -307,6 +330,7 @@ export const WebBranchesTeamPage: React.FC<WebBranchesTeamPageProps> = ({
         password: generatedPassword,
         email: cleanEmail,
         emailSent,
+        backofficeUrl: finalRole === 'manager' ? backofficeUrl : undefined,
       });
     } else {
       alert(
@@ -315,6 +339,49 @@ export const WebBranchesTeamPage: React.FC<WebBranchesTeamPageProps> = ({
           : `${cleanNama} berhasil ditambahkan.`
       );
     }
+  };
+
+  const handleResetManagerPassword = async (target: User) => {
+    if (!isOwner || target.role !== 'manager') return;
+    if (!confirm(`Reset kata sandi Manager "${target.nama}" dan buat kata sandi acak baru?`)) return;
+    const newPassword = generateStrongPassword();
+    const passwordHash = await hashPassword(newPassword);
+    const nowIso = new Date().toISOString();
+    await db.users.update(target.id, { passwordHash, updatedAt: nowIso });
+    await addAuditLog(user, 'RESET_PASSWORD_MANAGER', target.nama, 'Kata sandi Manager di-reset otomatis');
+    await enqueueSync('master', target.id, 'upsert', { passwordHash, updatedAt: nowIso, isUser: true });
+
+    const backofficeUrl = getWebBackofficeUrl();
+    let emailSent = false;
+    if (navigator.onLine && target.email) {
+      const mailRes = await sendEmployeeCredentialsEmail({
+        email: target.email,
+        nama: target.nama,
+        role: 'manager',
+        username: target.username,
+        pin: target.pin || '-',
+        password: newPassword,
+        namaUsaha: settings?.namaUsaha || 'Lembayung',
+        namaCabang: settings?.namaCabang || 'Pusat',
+        outletId: activeOutletId || settings?.outletId || '',
+        backofficeUrl,
+        reason: 'password_reset',
+      }).catch(() => ({ success: false }));
+      emailSent = Boolean(mailRes.success);
+    }
+
+    setShowUserModal(false);
+    setCreatedCredModal({
+      title: 'Kata Sandi Manager Di-reset',
+      nama: target.nama,
+      role: 'manager',
+      username: target.username,
+      pin: target.pin || '-',
+      password: newPassword,
+      email: target.email || '-',
+      emailSent,
+      backofficeUrl,
+    });
   };
 
   const canDelete = (target: User) => {
@@ -613,129 +680,217 @@ export const WebBranchesTeamPage: React.FC<WebBranchesTeamPageProps> = ({
               </button>
             </div>
 
-            {isOwner && editingUser?.role !== 'owner' && (
-              <div>
-                <label className="block text-xs font-semibold text-[#4a4947] mb-1">Peran</label>
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setURole('kasir')}
-                    className={`h-9 rounded-xl border text-xs font-semibold ${
-                      uRole === 'kasir'
-                        ? 'bg-[#e4f1ea] border-[#1F7A5A] text-[#1F7A5A]'
-                        : 'border-[#d6d3c8] text-[#4a4947]'
-                    }`}
-                  >
-                    Kasir (Aplikasi POS)
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setURole('manager')}
-                    className={`h-9 rounded-xl border text-xs font-semibold ${
-                      uRole === 'manager'
-                        ? 'bg-[#e0e7ff] border-[#4338ca] text-[#3730a3]'
-                        : 'border-[#d6d3c8] text-[#4a4947]'
-                    }`}
-                  >
-                    Manager (Web &amp; App)
-                  </button>
-                </div>
-              </div>
-            )}
-
-            <div>
-              <label className="block text-xs font-medium text-[#4a4947] mb-1">
-                Nama Lengkap *
-              </label>
-              <input
-                type="text"
-                value={uNama}
-                onChange={(e) => setUNama(e.target.value)}
-                placeholder="Contoh: Budi Santoso"
-                className="w-full h-10 border border-[#d6d3c8] rounded-xl px-3 text-sm"
-                required
-              />
-            </div>
-
-            <div className="grid grid-cols-2 gap-2.5">
-              <div>
-                <label className="block text-xs font-medium text-[#4a4947] mb-1">
-                  Email Karyawan *
-                </label>
-                <input
-                  type="email"
-                  value={uEmail}
-                  onChange={(e) => setUEmail(e.target.value)}
-                  placeholder="nama@gmail.com"
-                  className="w-full h-10 border border-[#d6d3c8] rounded-xl px-3 text-sm"
-                  required={!editingUser}
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-[#4a4947] mb-1">
-                  No. WhatsApp / HP *
-                </label>
-                <input
-                  type="tel"
-                  inputMode="tel"
-                  value={uNoHp}
-                  onChange={(e) => setUNoHp(e.target.value)}
-                  placeholder="081234567890"
-                  className="w-full h-10 border border-[#d6d3c8] rounded-xl px-3 text-sm"
-                  required={!editingUser}
-                />
-              </div>
-            </div>
-
-            {!editingUser ? (
-              <div className="bg-[#f4f9f6] border border-[#c5dfd1] rounded-xl px-3 py-2.5 text-[11px] text-[#1f4d3a] leading-relaxed">
-                <strong>Username</strong> &amp; <strong>PIN 6 angka</strong>
-                {uRole === 'manager' ? ' beserta Kata Sandi sementara Manager' : ''} akan dibuat otomatis dan dikirim langsung ke email karyawan.
-              </div>
-            ) : (
+            {/* MODE TAMBAH KARYAWAN BARU */}
+            {!editingUser && (
               <>
+                {isOwner && (
+                  <div>
+                    <label className="block text-xs font-semibold text-[#4a4947] mb-1">Peran</label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setURole('kasir')}
+                        className={`h-9 rounded-xl border text-xs font-semibold ${
+                          uRole === 'kasir'
+                            ? 'bg-[#e4f1ea] border-[#1F7A5A] text-[#1F7A5A]'
+                            : 'border-[#d6d3c8] text-[#4a4947]'
+                        }`}
+                      >
+                        Kasir (Aplikasi POS)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setURole('manager')}
+                        className={`h-9 rounded-xl border text-xs font-semibold ${
+                          uRole === 'manager'
+                            ? 'bg-[#e0e7ff] border-[#4338ca] text-[#3730a3]'
+                            : 'border-[#d6d3c8] text-[#4a4947]'
+                        }`}
+                      >
+                        Manager (Web &amp; App)
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 <div>
-                  <label className="block text-xs font-medium text-[#4a4947] mb-1">Username *</label>
+                  <label className="block text-xs font-medium text-[#4a4947] mb-1">
+                    Nama Lengkap *
+                  </label>
                   <input
                     type="text"
-                    value={uUsername}
-                    onChange={(e) => setUUsername(e.target.value)}
+                    value={uNama}
+                    onChange={(e) => setUNama(e.target.value)}
+                    placeholder="Contoh: Budi Santoso"
                     className="w-full h-10 border border-[#d6d3c8] rounded-xl px-3 text-sm"
                     required
                   />
                 </div>
+
                 <div className="grid grid-cols-2 gap-2.5">
-                  {(editingUser.role === 'owner' || uRole === 'manager') && (
-                    <div>
-                      <label className="block text-xs font-medium text-[#4a4947] mb-1">
-                        Reset Kata Sandi (opsional)
-                      </label>
-                      <input
-                        type="password"
-                        value={uPassword}
-                        onChange={(e) => setUPassword(e.target.value)}
-                        placeholder="Kosongkan jika tetap"
-                        className="w-full h-10 border border-[#d6d3c8] rounded-xl px-3 text-sm"
-                      />
-                    </div>
-                  )}
+                  <div>
+                    <label className="block text-xs font-medium text-[#4a4947] mb-1">
+                      Email Karyawan *
+                    </label>
+                    <input
+                      type="email"
+                      value={uEmail}
+                      onChange={(e) => setUEmail(e.target.value)}
+                      placeholder="nama@gmail.com"
+                      className="w-full h-10 border border-[#d6d3c8] rounded-xl px-3 text-sm"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-[#4a4947] mb-1">
+                      No. WhatsApp / HP *
+                    </label>
+                    <input
+                      type="tel"
+                      inputMode="tel"
+                      value={uNoHp}
+                      onChange={(e) => setUNoHp(e.target.value)}
+                      placeholder="081234567890"
+                      className="w-full h-10 border border-[#d6d3c8] rounded-xl px-3 text-sm"
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div className="bg-[#f4f9f6] border border-[#c5dfd1] rounded-xl px-3 py-2.5 text-[11px] text-[#1f4d3a] leading-relaxed">
+                  <strong>Username</strong> &amp; <strong>PIN 6 angka</strong>
+                  {uRole === 'manager' ? ' beserta Kata Sandi & Link Web Backoffice' : ''} akan dibuat otomatis dan dikirim langsung ke email karyawan.
+                </div>
+              </>
+            )}
+
+            {/* MODE ATUR KARYAWAN (IDENTITAS, EMAIL, PIN DIKUNCI) */}
+            {editingUser && editingUser.role !== 'owner' && (
+              <>
+                <div className="bg-[#faf9f5] border border-[#e2e0d8] rounded-xl p-3 flex flex-col gap-1.5 text-xs">
+                  <div className="flex justify-between gap-2">
+                    <span className="text-[#6b6a68]">Nama</span>
+                    <span className="font-semibold text-[#1f1e1d] text-right">{editingUser.nama}</span>
+                  </div>
+                  <div className="flex justify-between gap-2">
+                    <span className="text-[#6b6a68]">Username</span>
+                    <span className="font-mono font-semibold text-[#1f1e1d]">@{editingUser.username}</span>
+                  </div>
+                  <div className="flex justify-between gap-2">
+                    <span className="text-[#6b6a68]">Email</span>
+                    <span className="font-medium text-[#1f1e1d] truncate">{editingUser.email || '-'}</span>
+                  </div>
+                  <div className="flex justify-between gap-2">
+                    <span className="text-[#6b6a68]">No. WA/HP</span>
+                    <span className="font-medium text-[#1f1e1d]">{editingUser.noHp || '-'}</span>
+                  </div>
                   {isOwner && (
-                    <div>
-                      <label className="block text-xs font-medium text-[#4a4947] mb-1">
-                        PIN 6 Angka (Khusus Owner)
-                      </label>
-                      <input
-                        type="text"
-                        inputMode="numeric"
-                        maxLength={6}
-                        value={uPin}
-                        onChange={(e) => setUPin(e.target.value.replace(/\D/g, ''))}
-                        placeholder="123456"
-                        className="w-full h-10 border border-[#d6d3c8] rounded-xl px-3 text-sm font-mono font-bold tracking-widest"
-                        required
-                      />
+                    <div className="flex justify-between gap-2 pt-1 border-t border-[#eeece5]">
+                      <span className="text-[#6b6a68]">PIN Pribadi</span>
+                      <span className="font-mono font-bold tracking-widest text-[#1F7A5A]">
+                        {editingUser.pin || '-'}
+                      </span>
                     </div>
                   )}
+                  <div className="text-[10px] text-[#6b6a68] pt-1 border-t border-[#eeece5]">
+                    Data identitas, email, dan PIN dikunci untuk menjaga keunikan akun.
+                  </div>
+                </div>
+
+                {isOwner && (
+                  <div>
+                    <label className="block text-xs font-semibold text-[#4a4947] mb-1">Peran (Jabatan)</label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setURole('kasir')}
+                        className={`h-9 rounded-xl border text-xs font-semibold ${
+                          uRole === 'kasir'
+                            ? 'bg-[#e4f1ea] border-[#1F7A5A] text-[#1F7A5A]'
+                            : 'border-[#d6d3c8] text-[#4a4947]'
+                        }`}
+                      >
+                        Kasir (Aplikasi POS)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setURole('manager')}
+                        className={`h-9 rounded-xl border text-xs font-semibold ${
+                          uRole === 'manager'
+                            ? 'bg-[#e0e7ff] border-[#4338ca] text-[#3730a3]'
+                            : 'border-[#d6d3c8] text-[#4a4947]'
+                        }`}
+                      >
+                        Manager (Web &amp; App)
+                      </button>
+                    </div>
+                    {editingUser.role === 'kasir' && uRole === 'manager' && (
+                      <div className="mt-2 bg-[#eef2ff] border border-[#c7d2fe] text-[#3730a3] rounded-xl px-3 py-2 text-[11px] leading-relaxed">
+                        Naik jabatan ke <strong>Manager</strong> akan otomatis membuatkan <strong>Kata Sandi Web Backoffice</strong> dan mengirim link backoffice ke email karyawan.
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {isOwner && editingUser.role === 'manager' && uRole === 'manager' && (
+                  <button
+                    type="button"
+                    onClick={() => handleResetManagerPassword(editingUser)}
+                    className="h-9 rounded-xl border border-[#c7d2fe] bg-[#eef2ff] hover:bg-[#e0e7ff] text-[#3730a3] text-xs font-semibold transition"
+                  >
+                    Reset Kata Sandi Manager Otomatis &amp; Kirim Email
+                  </button>
+                )}
+              </>
+            )}
+
+            {/* MODE EDIT PROFIL OWNER SENDIRI */}
+            {editingUser && editingUser.role === 'owner' && (
+              <>
+                <div>
+                  <label className="block text-xs font-medium text-[#4a4947] mb-1">
+                    Nama Lengkap *
+                  </label>
+                  <input
+                    type="text"
+                    value={uNama}
+                    onChange={(e) => setUNama(e.target.value)}
+                    className="w-full h-10 border border-[#d6d3c8] rounded-xl px-3 text-sm"
+                    required
+                  />
+                </div>
+                <div className="bg-[#faf9f5] border border-[#e2e0d8] rounded-xl px-3 py-2 text-xs text-[#6b6a68] flex flex-col gap-0.5">
+                  <div>Username: <strong className="text-[#1f1e1d] font-mono">@{editingUser.username}</strong></div>
+                  <div>Email: <strong className="text-[#1f1e1d]">{editingUser.email || '-'}</strong></div>
+                </div>
+                <div className="grid grid-cols-2 gap-2.5">
+                  <div>
+                    <label className="block text-xs font-medium text-[#4a4947] mb-1">
+                      Ubah Kata Sandi (opsional)
+                    </label>
+                    <input
+                      type="password"
+                      value={uPassword}
+                      onChange={(e) => setUPassword(e.target.value)}
+                      placeholder="Kosongkan jika tetap"
+                      className="w-full h-10 border border-[#d6d3c8] rounded-xl px-3 text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-[#4a4947] mb-1">
+                      PIN Owner (6 Angka)
+                    </label>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      maxLength={6}
+                      value={uPin}
+                      onChange={(e) => setUPin(e.target.value.replace(/\D/g, ''))}
+                      placeholder="123456"
+                      className="w-full h-10 border border-[#d6d3c8] rounded-xl px-3 text-sm font-mono font-bold tracking-widest"
+                      required
+                    />
+                  </div>
                 </div>
               </>
             )}
@@ -800,12 +955,14 @@ export const WebBranchesTeamPage: React.FC<WebBranchesTeamPageProps> = ({
         </div>
       )}
 
-      {/* Modal Kredensial Karyawan Baru (Khusus Owner) */}
+      {/* Modal Kredensial Karyawan / Promosi Manager (Khusus Owner) */}
       {createdCredModal && (
         <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
           <div className="bg-white w-full max-w-[400px] rounded-2xl p-5 flex flex-col gap-3.5 shadow-xl border border-[#e2e0d8]">
             <div className="flex justify-between items-center">
-              <div className="font-bold text-base text-[#1F7A5A]">Karyawan Berhasil Didaftarkan</div>
+              <div className="font-bold text-base text-[#1F7A5A]">
+                {createdCredModal.title || 'Karyawan Berhasil Didaftarkan'}
+              </div>
               <button type="button" onClick={() => setCreatedCredModal(null)}>
                 <X size={18} className="text-[#6b6a68]" />
               </button>
@@ -817,20 +974,48 @@ export const WebBranchesTeamPage: React.FC<WebBranchesTeamPageProps> = ({
                 : ` · Email belum terkirim (pastikan koneksi internet aktif).`}
             </div>
             <div className="bg-[#f4f9f6] border border-[#c5dfd1] rounded-xl p-3.5 flex flex-col gap-2 text-xs">
-              <div className="flex justify-between">
+              <div className="flex justify-between gap-2">
+                <span className="text-[#6b6a68]">Email Login</span>
+                <span className="font-semibold text-[#1f1e1d] truncate">{createdCredModal.email}</span>
+              </div>
+              <div className="flex justify-between gap-2">
                 <span className="text-[#6b6a68]">Username</span>
                 <span className="font-mono font-bold text-[#1f1e1d]">{createdCredModal.username}</span>
               </div>
-              <div className="flex justify-between">
+              <div className="flex justify-between gap-2">
                 <span className="text-[#6b6a68]">PIN Pribadi</span>
                 <span className="font-mono font-extrabold text-sm tracking-widest text-[#1F7A5A]">
                   {createdCredModal.pin}
                 </span>
               </div>
               {createdCredModal.password && (
-                <div className="flex justify-between border-t border-[#c5dfd1] pt-2">
+                <div className="flex justify-between gap-2 border-t border-[#c5dfd1] pt-2">
                   <span className="text-[#6b6a68]">Kata Sandi Manager</span>
                   <span className="font-mono font-bold text-[#1f1e1d]">{createdCredModal.password}</span>
+                </div>
+              )}
+              {createdCredModal.backofficeUrl && (
+                <div className="border-t border-[#c5dfd1] pt-2 flex flex-col gap-1">
+                  <span className="text-[#6b6a68]">Link Web Backoffice</span>
+                  <div className="flex items-center justify-between gap-2">
+                    <a
+                      href={createdCredModal.backofficeUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-[#1F7A5A] font-semibold underline truncate"
+                    >
+                      {createdCredModal.backofficeUrl}
+                    </a>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        navigator.clipboard?.writeText(createdCredModal.backofficeUrl || '');
+                      }}
+                      className="text-[11px] font-semibold px-2 py-1 rounded-md bg-white border border-[#c5dfd1] text-[#1F7A5A] shrink-0"
+                    >
+                      Salin
+                    </button>
+                  </div>
                 </div>
               )}
             </div>
