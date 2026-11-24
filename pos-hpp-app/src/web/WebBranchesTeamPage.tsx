@@ -12,7 +12,7 @@ import {
   generateUniqueSixDigitPin,
   generateUniqueUsername,
 } from '../services/attendanceService';
-import { sendEmployeeCredentialsEmail } from '../services/authEmailService';
+import { checkEmailDuplicateInCloud, sendEmployeeCredentialsEmail } from '../services/authEmailService';
 import type { AppSettings, BranchInfo, User } from '../types/models';
 import {
   Building2,
@@ -182,9 +182,21 @@ export const WebBranchesTeamPage: React.FC<WebBranchesTeamPageProps> = ({
       const finalRole =
         editingUser.role === 'owner' ? 'owner' : isOwner ? uRole : 'kasir';
 
-      if (finalRole === 'manager' && cleanEmail) {
+      if (cleanEmail) {
         const eErr = validateEmail(cleanEmail);
         if (eErr) return setUserErr(eErr);
+        const dupEmailLocal = users.find(
+          (u) =>
+            u.id !== editingUser.id &&
+            (u.email || '').trim().toLowerCase() === cleanEmail
+        );
+        if (dupEmailLocal) {
+          return setUserErr(
+            `Email "${cleanEmail}" sudah digunakan oleh ${dupEmailLocal.nama}. Setiap akun wajib menggunakan email yang berbeda.`
+          );
+        }
+        const dupEmailCloud = await checkEmailDuplicateInCloud(cleanEmail, editingUser.id);
+        if (dupEmailCloud) return setUserErr(dupEmailCloud);
       }
 
       const effectivePin = isOwner ? uPin.trim() : (editingUser.pin || '');
@@ -229,6 +241,16 @@ export const WebBranchesTeamPage: React.FC<WebBranchesTeamPageProps> = ({
     // === TAMBAH KARYAWAN BARU (Nama Lengkap, Email, No. WA/HP -> Auto-generate Username, PIN, & Password Manager) ===
     const emailErr = validateEmail(cleanEmail);
     if (emailErr) return setUserErr(emailErr);
+    const dupEmailLocal = users.find(
+      (u) => (u.email || '').trim().toLowerCase() === cleanEmail
+    );
+    if (dupEmailLocal) {
+      return setUserErr(
+        `Email "${cleanEmail}" sudah digunakan oleh ${dupEmailLocal.nama}. Setiap akun wajib menggunakan email yang berbeda.`
+      );
+    }
+    const dupEmailCloud = await checkEmailDuplicateInCloud(cleanEmail);
+    if (dupEmailCloud) return setUserErr(dupEmailCloud);
     if (cleanNoHp.replace(/\D/g, '').length < 9) {
       return setUserErr('Nomor WhatsApp / HP wajib diisi (minimal 9 angka).');
     }

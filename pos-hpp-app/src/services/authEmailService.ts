@@ -181,6 +181,36 @@ export async function lookupOwnerOutletIdInCloud(identifier: string): Promise<st
   }
 }
 
+export async function checkEmailDuplicateInCloud(
+  email: string,
+  excludeUserId?: string
+): Promise<string | null> {
+  const clean = email.trim().toLowerCase();
+  if (!clean || (typeof navigator !== 'undefined' && !navigator.onLine)) return null;
+  try {
+    const settings = await db.settings.get('global');
+    const client = getSupabaseClient(settings);
+    const { data, error } = await client
+      .from('users')
+      .select('id, nama, email, username');
+    if (error || !Array.isArray(data)) return null;
+    const found = (data as Array<{ id: string; nama?: string; email?: string | null; username?: string | null }>).find(
+      (r) => {
+        if (excludeUserId && r.id === excludeUserId) return false;
+        const rEmail = (r.email || '').trim().toLowerCase();
+        const rUser = (r.username || '').trim().toLowerCase();
+        return rEmail === clean || rUser === clean;
+      }
+    );
+    if (found) {
+      return `Email "${clean}" sudah terdaftar pada akun lain${found.nama ? ` (${found.nama})` : ''}. Setiap akun wajib menggunakan email yang berbeda.`;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 export async function sendEmployeeCredentialsEmail(params: {
   email: string;
   nama: string;

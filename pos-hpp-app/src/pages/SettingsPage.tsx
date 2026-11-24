@@ -32,7 +32,7 @@ import {
   generateUniqueUsername,
   getDuplicatePinSet,
 } from '../services/attendanceService';
-import { sendEmployeeCredentialsEmail } from '../services/authEmailService';
+import { checkEmailDuplicateInCloud, sendEmployeeCredentialsEmail } from '../services/authEmailService';
 import { compressLogoFileToDataUrl } from '../lib/receipt';
 import { CustomSelect } from '../components/CustomSelect';
 import type { AppSettings, RoundingStep, User } from '../types/models';
@@ -280,6 +280,30 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
         return;
       }
 
+      if (cleanEmail) {
+        const eErr = validateEmail(cleanEmail);
+        if (eErr) {
+          alert(eErr);
+          return;
+        }
+        const dupEmailLocal = allUsers.find(
+          (u) =>
+            u.id !== editingUser.id &&
+            (u.email || '').trim().toLowerCase() === cleanEmail
+        );
+        if (dupEmailLocal) {
+          alert(
+            `Email "${cleanEmail}" sudah digunakan oleh ${dupEmailLocal.nama}. Setiap akun wajib menggunakan email yang berbeda.`
+          );
+          return;
+        }
+        const dupEmailCloud = await checkEmailDuplicateInCloud(cleanEmail, editingUser.id);
+        if (dupEmailCloud) {
+          alert(dupEmailCloud);
+          return;
+        }
+      }
+
       const targetRole =
         editingUser.role === 'owner'
           ? 'owner'
@@ -337,6 +361,20 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
     const emailErr = validateEmail(cleanEmail);
     if (emailErr) {
       alert(emailErr);
+      return;
+    }
+    const dupEmailLocal = allUsers.find(
+      (u) => (u.email || '').trim().toLowerCase() === cleanEmail
+    );
+    if (dupEmailLocal) {
+      alert(
+        `Email "${cleanEmail}" sudah digunakan oleh ${dupEmailLocal.nama}. Setiap akun wajib menggunakan email yang berbeda.`
+      );
+      return;
+    }
+    const dupEmailCloud = await checkEmailDuplicateInCloud(cleanEmail);
+    if (dupEmailCloud) {
+      alert(dupEmailCloud);
       return;
     }
     if (cleanNoHp.replace(/\D/g, '').length < 9) {

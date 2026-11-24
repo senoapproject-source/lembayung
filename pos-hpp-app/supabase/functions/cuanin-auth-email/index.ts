@@ -276,24 +276,25 @@ async function checkRegistrationDuplicate(
   const cleanUser = username.trim().toLowerCase();
   const cleanEmail = email.trim().toLowerCase();
 
-  const { data, error } = await sb
-    .from('users')
-    .select('username, email');
+  const [usersRes, outletsRes] = await Promise.all([
+    sb.from('users').select('username, email'),
+    sb.from('outlets').select('owner_email'),
+  ]);
 
-  if (error || !Array.isArray(data)) return null;
-
-  const rows = data as Array<{ username: string | null; email: string | null }>;
+  const rows = (usersRes.data as Array<{ username: string | null; email: string | null }> | null) || [];
+  const outletRows = (outletsRes.data as Array<{ owner_email: string | null }> | null) || [];
   const usernameTaken = Boolean(
     cleanUser &&
       rows.some((r) => (r.username || '').trim().toLowerCase() === cleanUser)
   );
   const emailTaken = Boolean(
     cleanEmail &&
-      rows.some((r) => {
+      (rows.some((r) => {
         const rowEmail = (r.email || '').trim().toLowerCase();
         const rowUser = (r.username || '').trim().toLowerCase();
         return rowEmail === cleanEmail || rowUser === cleanEmail;
-      })
+      }) ||
+        outletRows.some((o) => (o.owner_email || '').trim().toLowerCase() === cleanEmail))
   );
 
   if (usernameTaken && emailTaken) {
