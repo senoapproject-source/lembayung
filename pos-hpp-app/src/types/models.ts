@@ -282,6 +282,9 @@ export interface BranchInfo {
   parentOutletId?: string;
   logoUsaha?: string;
   kasirAuthPin?: string;
+  isStoreOpen?: boolean;
+  activeCashierName?: string;
+  shiftOpenedAt?: string;
   updatedAt: string;
 }
 

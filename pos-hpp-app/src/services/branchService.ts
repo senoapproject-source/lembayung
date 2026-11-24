@@ -31,6 +31,7 @@ export async function fetchOwnerBranches(owner: User): Promise<BranchInfo[]> {
   if (typeof navigator !== 'undefined' && !navigator.onLine) {
     const localSettings = await db.settings.get('global');
     if (!localSettings?.outletId) return [];
+    const openShift = await db.cashierShifts.where('status').equals('open').first();
     return [
       {
         outletId: localSettings.outletId,
@@ -42,6 +43,9 @@ export async function fetchOwnerBranches(owner: User): Promise<BranchInfo[]> {
         parentOutletId: localSettings.parentOutletId,
         logoUsaha: localSettings.logoUsaha,
         kasirAuthPin: localSettings.kasirAuthPin,
+        isStoreOpen: Boolean(openShift),
+        activeCashierName: openShift?.kasirNama,
+        shiftOpenedAt: openShift?.waktuBuka,
         updatedAt: localSettings.lastBackupAt,
       },
     ];
@@ -95,11 +99,129 @@ export async function fetchOwnerBranches(owner: User): Promise<BranchInfo[]> {
     }
   }
 
+  // 3. Cek status buka/tutup toko (apakah ada shift kasir yang sedang status='open') di seluruh cabang
+  if (branches.length > 0) {
+    const branchIds = branches.map((b) => b.outletId);
+    const { data: openShifts } = await client
+      .from('cashier_shifts')
+      .select('outlet_id, kasir_nama, waktu_buka')
+      .eq('status', 'open')
+      .in('outlet_id', branchIds);
+
+    const openShiftMap = new Map<string, { kasirNama: string; waktuBuka: string }>();
+    for (const sh of (openShifts as Array<{ outlet_id: string; kasir_nama?: string; waktu_buka?: string }> | null) || []) {
+      const oid = String(sh.outlet_id || '').trim().toUpperCase();
+      if (!oid) continue;
+      const prev = openShiftMap.get(oid);
+      if (!prev || (sh.waktu_buka || '') > prev.waktuBuka) {
+        openShiftMap.set(oid, {
+          kasirNama: sh.kasir_nama || 'Kasir',
+          waktuBuka: sh.waktu_buka || '',
+        });
+      }
+    }
+    for (const b of branches) {
+      const openInfo = openShiftMap.get(b.outletId);
+      b.isStoreOpen = Boolean(openInfo);
+      b.activeCashierName = openInfo?.kasirNama;
+      b.shiftOpenedAt = openInfo?.waktuBuka;
+    }
+  }
+
   return branches.sort((a, b) => {
     if (!a.parentOutletId && b.parentOutletId) return -1;
     if (a.parentOutletId && !b.parentOutletId) return 1;
     return a.namaCabang.localeCompare(b.namaCabang);
   });
+}
+
+/**
+ * Perbarui informasi profil cabang (Nama Cabang, Alamat, No. HP/WA) langsung dari Manajemen Cabang.
+ */
+export async function updateBranchProfile(params: {
+  outletId: string;
+  namaCabang: string;
+  alamatUsaha: string;
+  teleponUsaha?: string;
+}): Promise<{ success: boolean; updatedAt?: string; error?: string }> {
+  if (typeof navigator !== 'undefined' && !navigator.onLine) {
+    return { success: false, error: 'Mengubah info cabang memerlukan koneksi internet.' };
+  }
+  try {
+    const localSettings = await db.settings.get('global');
+    const client = getSupabaseClient(localSettings);
+    const cleanOid = params.outletId.trim().toUpperCase();
+    const nowIso = new Date().toISOString();
+
+    const { error } = await client
+      .from('outlets')
+      .update({
+        nama_cabang: params.namaCabang.trim() || 'Pusat',
+        alamat_usaha: params.alamatUsaha.trim() || '-',
+        telepon_usaha: (params.teleponUsaha || '').trim(),
+        updated_at: nowIso,
+      })
+      .eq('outlet_id', cleanOid);
+
+    if (error) return { success: false, error: error.message };
+
+    if (localSettings && (localSettings.outletId || '').trim().toUpperCase() === cleanOid) {
+      await db.settings.update('global', {
+        namaCabang: params.namaCabang.trim() || 'Pusat',
+        alamatUsaha: params.alamatUsaha.trim() || '-',
+        teleponUsaha: (params.teleponUsaha || '').trim(),
+        lastBackupAt: nowIso,
+      });
+    }
+    return { success: true, updatedAt: nowIso };
+  } catch (err) {
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : 'Gagal memperbarui info cabang.',
+    };
+  }
+}
+
+/**
+ * Reset PIN Otorisasi Mode Kasir (6 angka acak) untuk cabang tertentu langsung dari Manajemen Cabang.
+ */
+export async function resetBranchKasirAuthPin(
+  outletId: string,
+  excludePins: string[] = []
+): Promise<{ success: boolean; newPin?: string; updatedAt?: string; error?: string }> {
+  if (typeof navigator !== 'undefined' && !navigator.onLine) {
+    return { success: false, error: 'Reset PIN Otorisasi cabang memerlukan koneksi internet.' };
+  }
+  try {
+    const localSettings = await db.settings.get('global');
+    const client = getSupabaseClient(localSettings);
+    const cleanOid = outletId.trim().toUpperCase();
+    const newPin = generateKasirAuthPin(excludePins);
+    const nowIso = new Date().toISOString();
+
+    const { error } = await client
+      .from('outlets')
+      .update({
+        kasir_auth_pin: newPin,
+        updated_at: nowIso,
+      })
+      .eq('outlet_id', cleanOid);
+
+    if (error) return { success: false, error: error.message };
+
+    if (localSettings && (localSettings.outletId || '').trim().toUpperCase() === cleanOid) {
+      await db.settings.update('global', {
+        kasirAuthPin: newPin,
+        lastBackupAt: nowIso,
+      });
+    }
+    return { success: true, newPin, updatedAt: nowIso };
+  } catch (err) {
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : 'Gagal mereset PIN Otorisasi cabang.',
+    };
+  }
 }
 
 /**

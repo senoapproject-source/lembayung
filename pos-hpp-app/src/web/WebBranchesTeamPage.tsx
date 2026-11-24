@@ -3,7 +3,11 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { v4 as uuidv4 } from 'uuid';
 import { db, hashPassword } from '../db/database';
 import { addAuditLog, enqueueSync } from '../db/actions';
-import { createNewBranch } from '../services/branchService';
+import {
+  createNewBranch,
+  resetBranchKasirAuthPin,
+  updateBranchProfile,
+} from '../services/branchService';
 import { deleteUserFromSupabase, getWebBackofficeUrl } from '../services/syncService';
 import { validateEmail, validatePassword, validatePin } from '../lib/validation';
 import {
@@ -18,7 +22,9 @@ import {
   Building2,
   Check,
   Copy,
+  KeyRound,
   MapPin,
+  Pencil,
   Phone,
   Plus,
   Search,
@@ -36,6 +42,7 @@ interface WebBranchesTeamPageProps {
   activeOutletId: string;
   section?: 'branches' | 'team' | 'all';
   onBranchCreated: (branch: BranchInfo) => void;
+  onBranchUpdated?: (branch: BranchInfo) => void;
   onSelectBranch: (outletId: string) => void;
 }
 
@@ -46,13 +53,22 @@ export const WebBranchesTeamPage: React.FC<WebBranchesTeamPageProps> = ({
   activeOutletId,
   section = 'all',
   onBranchCreated,
-  onSelectBranch,
+  onBranchUpdated,
 }) => {
   const users = useLiveQuery(() => db.users.toArray()) ?? [];
   const isOwner = user.role === 'owner';
 
   const [copiedId, setCopiedId] = useState('');
   const [branchSearch, setBranchSearch] = useState('');
+
+  // Modal Edit Cabang
+  const [editingBranch, setEditingBranch] = useState<BranchInfo | null>(null);
+  const [ebNamaCabang, setEbNamaCabang] = useState('');
+  const [ebAlamat, setEbAlamat] = useState('');
+  const [ebTelepon, setEbTelepon] = useState('');
+  const [ebSaving, setEbSaving] = useState(false);
+  const [ebErr, setEbErr] = useState('');
+  const [resettingPinOutletId, setResettingPinOutletId] = useState('');
   const [showAddBranch, setShowAddBranch] = useState(false);
   const [bNamaCabang, setBNamaCabang] = useState('');
   const [bAlamat, setBAlamat] = useState('');
@@ -130,6 +146,75 @@ export const WebBranchesTeamPage: React.FC<WebBranchesTeamPageProps> = ({
       );
     } finally {
       setBranchSaving(false);
+    }
+  };
+
+  const openEditBranch = (b: BranchInfo) => {
+    setEditingBranch(b);
+    setEbNamaCabang(b.namaCabang);
+    setEbAlamat(b.alamatUsaha === '-' ? '' : b.alamatUsaha);
+    setEbTelepon(b.teleponUsaha || '');
+    setEbErr('');
+  };
+
+  const handleSaveEditBranch = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingBranch) return;
+    if (!ebNamaCabang.trim()) {
+      setEbErr('Nama cabang wajib diisi.');
+      return;
+    }
+    setEbSaving(true);
+    setEbErr('');
+    try {
+      const res = await updateBranchProfile({
+        outletId: editingBranch.outletId,
+        namaCabang: ebNamaCabang.trim(),
+        alamatUsaha: ebAlamat.trim() || '-',
+        teleponUsaha: ebTelepon.trim(),
+      });
+      if (!res.success) {
+        setEbErr(res.error || 'Gagal menyimpan perubahan cabang.');
+        return;
+      }
+      onBranchUpdated?.({
+        ...editingBranch,
+        namaCabang: ebNamaCabang.trim(),
+        alamatUsaha: ebAlamat.trim() || '-',
+        teleponUsaha: ebTelepon.trim(),
+        updatedAt: res.updatedAt || new Date().toISOString(),
+      });
+      setEditingBranch(null);
+    } finally {
+      setEbSaving(false);
+    }
+  };
+
+  const handleResetBranchPin = async (b: BranchInfo) => {
+    if (
+      !confirm(
+        `Reset PIN Otorisasi Mode Kasir untuk "${b.namaCabang}" (${b.outletId})? PIN lama tidak akan bisa dipakai lagi.`
+      )
+    ) {
+      return;
+    }
+    setResettingPinOutletId(b.outletId);
+    try {
+      const excludePins = users.map((u) => u.pin || '').filter(Boolean);
+      if (b.kasirAuthPin) excludePins.push(b.kasirAuthPin);
+      const res = await resetBranchKasirAuthPin(b.outletId, excludePins);
+      if (!res.success || !res.newPin) {
+        alert(res.error || 'Gagal mereset PIN Otorisasi.');
+        return;
+      }
+      onBranchUpdated?.({
+        ...b,
+        kasirAuthPin: res.newPin,
+        updatedAt: res.updatedAt || new Date().toISOString(),
+      });
+      alert(`PIN Otorisasi Mode Kasir "${b.namaCabang}" berhasil di-reset!\n\nPIN Baru: ${res.newPin}`);
+    } finally {
+      setResettingPinOutletId('');
     }
   };
 
@@ -447,15 +532,31 @@ export const WebBranchesTeamPage: React.FC<WebBranchesTeamPageProps> = ({
           });
         };
 
+        const openCount = branches.filter((b) => b.isStoreOpen).length;
+        const closedCount = branches.length - openCount;
+
+        const fmtTimeOnly = (iso?: string) => {
+          if (!iso) return '';
+          const d = new Date(iso);
+          if (Number.isNaN(d.getTime())) return '';
+          return d.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+        };
+
         return (
           <div className="bg-white border border-[#e2e0d8] rounded-2xl overflow-hidden">
             <div className="px-5 py-4 border-b border-[#eeece5] flex flex-wrap items-center justify-between gap-3">
               <div>
-                <h2 className="font-bold text-base text-[#1f1e1d] flex items-center gap-2">
+                <h2 className="font-bold text-base text-[#1f1e1d] flex items-center gap-2 flex-wrap">
                   <Building2 size={18} className="text-[#1F7A5A]" /> Daftar Cabang ({branches.length})
+                  <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-[#e4f1ea] text-[#1F7A5A]">
+                    {openCount} Buka
+                  </span>
+                  <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-[#ece9e0] text-[#4a4947]">
+                    {closedCount} Tutup
+                  </span>
                 </h2>
                 <p className="text-xs text-[#6b6a68] mt-0.5">
-                  Setiap cabang memiliki ID Outlet dan PIN Otorisasi Mode Kasir masing-masing untuk perangkat kasir.
+                  Pantau status buka/tutup toko, ID Outlet, PIN Otorisasi Mode Kasir, dan kelola informasi tiap cabang.
                 </p>
               </div>
               <div className="flex flex-wrap items-center gap-2.5">
@@ -507,17 +608,18 @@ export const WebBranchesTeamPage: React.FC<WebBranchesTeamPageProps> = ({
                 <thead className="bg-[#faf9f5] text-[#6b6a68] border-b border-[#eeece5]">
                   <tr>
                     <th className="py-3 px-4 font-semibold">Nama Cabang</th>
+                    <th className="py-3 px-3 font-semibold">Status Toko</th>
                     <th className="py-3 px-3 font-semibold">ID Outlet (Kode Toko)</th>
                     <th className="py-3 px-3 font-semibold">PIN Otorisasi Kasir</th>
                     <th className="py-3 px-3 font-semibold">Alamat &amp; Kontak</th>
-                    <th className="py-3 px-3 font-semibold">Pembaruan Terakhir</th>
+                    <th className="py-3 px-3 font-semibold">Pembaruan</th>
                     <th className="py-3 px-4 font-semibold text-right">Aksi</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[#eeece5]">
                   {filteredBranches.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="py-10 px-4 text-center text-[#6b6a68]">
+                      <td colSpan={7} className="py-10 px-4 text-center text-[#6b6a68]">
                         Tidak ada cabang yang cocok dengan pencarian &ldquo;{branchSearch.trim()}&rdquo;.
                       </td>
                     </tr>
@@ -528,7 +630,7 @@ export const WebBranchesTeamPage: React.FC<WebBranchesTeamPageProps> = ({
                       return (
                         <tr
                           key={b.outletId}
-                          className={isCurrent ? 'bg-[#e4f1ea]/30' : 'hover:bg-[#faf9f5]'}
+                          className={isCurrent ? 'bg-[#e4f1ea]/25' : 'hover:bg-[#faf9f5]'}
                         >
                           <td className="py-3.5 px-4">
                             <div className="flex items-center gap-1.5 flex-wrap">
@@ -544,12 +646,29 @@ export const WebBranchesTeamPage: React.FC<WebBranchesTeamPageProps> = ({
                               >
                                 {isPusat ? 'Pusat' : 'Cabang'}
                               </span>
-                              {isCurrent && (
-                                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-[#1F7A5A] text-white">
-                                  Sedang Aktif
-                                </span>
-                              )}
                             </div>
+                          </td>
+
+                          <td className="py-3.5 px-3 whitespace-nowrap">
+                            {b.isStoreOpen ? (
+                              <div className="flex flex-col gap-0.5">
+                                <span className="inline-flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-[#e4f1ea] text-[#15803d] w-fit">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-[#16a34a] animate-pulse" />
+                                  Buka
+                                </span>
+                                {(b.activeCashierName || b.shiftOpenedAt) && (
+                                  <span className="text-[10px] text-[#6b6a68]">
+                                    {b.activeCashierName}
+                                    {b.shiftOpenedAt ? ` · ${fmtTimeOnly(b.shiftOpenedAt)}` : ''}
+                                  </span>
+                                )}
+                              </div>
+                            ) : (
+                              <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-[#ece9e0] text-[#6b6a68] w-fit">
+                                <span className="w-1.5 h-1.5 rounded-full bg-[#9ca3af]" />
+                                Tutup
+                              </span>
+                            )}
                           </td>
 
                           <td className="py-3.5 px-3 whitespace-nowrap">
@@ -581,7 +700,7 @@ export const WebBranchesTeamPage: React.FC<WebBranchesTeamPageProps> = ({
                             )}
                           </td>
 
-                          <td className="py-3.5 px-3 text-[#4a4947] max-w-[260px]">
+                          <td className="py-3.5 px-3 text-[#4a4947] max-w-[240px]">
                             <div className="flex items-start gap-1.5">
                               <MapPin size={12} className="text-[#6b6a68] shrink-0 mt-0.5" />
                               <span className="line-clamp-2">{b.alamatUsaha || '—'}</span>
@@ -599,19 +718,24 @@ export const WebBranchesTeamPage: React.FC<WebBranchesTeamPageProps> = ({
                           </td>
 
                           <td className="py-3.5 px-4 text-right whitespace-nowrap">
-                            {isCurrent ? (
-                              <span className="text-[11px] font-semibold text-[#1F7A5A]">
-                                Cabang Aktif
-                              </span>
-                            ) : (
+                            <div className="inline-flex items-center gap-1.5">
                               <button
                                 type="button"
-                                onClick={() => onSelectBranch(b.outletId)}
-                                className="h-8 px-3 rounded-xl border border-[#1F7A5A] text-[#1F7A5A] hover:bg-[#e4f1ea] text-xs font-semibold transition"
+                                onClick={() => openEditBranch(b)}
+                                className="h-8 px-2.5 rounded-lg border border-[#d6d3c8] bg-white hover:bg-[#faf9f5] text-[#1f1e1d] text-[11px] font-semibold inline-flex items-center gap-1 transition"
                               >
-                                Buka Cabang
+                                <Pencil size={12} /> Edit
                               </button>
-                            )}
+                              <button
+                                type="button"
+                                disabled={resettingPinOutletId === b.outletId}
+                                onClick={() => handleResetBranchPin(b)}
+                                className="h-8 px-2.5 rounded-lg border border-[#c5dfd1] bg-[#f4f9f6] hover:bg-[#e4f1ea] text-[#1F7A5A] text-[11px] font-semibold inline-flex items-center gap-1 transition disabled:opacity-50"
+                              >
+                                <KeyRound size={12} />
+                                {resettingPinOutletId === b.outletId ? 'Mereset...' : 'Reset PIN'}
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       );
@@ -723,6 +847,82 @@ export const WebBranchesTeamPage: React.FC<WebBranchesTeamPageProps> = ({
           </table>
         </div>
       </div>
+      )}
+
+      {/* Modal Edit Info Cabang */}
+      {editingBranch && (
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
+          <form
+            onSubmit={handleSaveEditBranch}
+            className="bg-white w-full max-w-[430px] rounded-2xl p-5 flex flex-col gap-3.5 shadow-xl"
+          >
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="font-bold text-base text-[#1f1e1d]">Edit Informasi Cabang</div>
+                <div className="text-[11px] font-mono text-[#1F7A5A]">{editingBranch.outletId}</div>
+              </div>
+              <button type="button" onClick={() => setEditingBranch(null)}>
+                <X size={18} className="text-[#6b6a68]" />
+              </button>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-[#4a4947] mb-1">
+                Nama Cabang *
+              </label>
+              <input
+                type="text"
+                value={ebNamaCabang}
+                onChange={(e) => setEbNamaCabang(e.target.value)}
+                placeholder="Contoh: Cabang Sudirman"
+                className="w-full h-10 border border-[#d6d3c8] rounded-xl px-3 text-sm"
+                required
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-[#4a4947] mb-1">Alamat</label>
+              <input
+                type="text"
+                value={ebAlamat}
+                onChange={(e) => setEbAlamat(e.target.value)}
+                placeholder="Jl. Sudirman No. 12"
+                className="w-full h-10 border border-[#d6d3c8] rounded-xl px-3 text-sm"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-[#4a4947] mb-1">
+                No. WhatsApp / Telepon Cabang
+              </label>
+              <input
+                type="tel"
+                value={ebTelepon}
+                onChange={(e) => setEbTelepon(e.target.value)}
+                placeholder="0812-xxxx-xxxx"
+                className="w-full h-10 border border-[#d6d3c8] rounded-xl px-3 text-sm"
+              />
+            </div>
+            {ebErr && (
+              <div className="text-xs bg-[#fbe4e1] text-[#9b1c12] px-3 py-2 rounded-xl">
+                {ebErr}
+              </div>
+            )}
+            <div className="flex justify-end gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => setEditingBranch(null)}
+                className="h-10 px-4 rounded-xl border border-[#d6d3c8] text-xs font-semibold"
+              >
+                Batal
+              </button>
+              <button
+                type="submit"
+                disabled={ebSaving}
+                className="h-10 px-5 rounded-xl bg-[#1F7A5A] text-white text-xs font-semibold disabled:opacity-60"
+              >
+                {ebSaving ? 'Menyimpan...' : 'Simpan'}
+              </button>
+            </div>
+          </form>
+        </div>
       )}
 
       {/* Modal Tambah Cabang Baru */}

@@ -581,6 +581,11 @@ export const WebDashboardShell: React.FC<WebDashboardShellProps> = ({
                   setToastMsg(`Cabang "${b.namaCabang}" (${b.outletId}) berhasil dibuat!`);
                   setTimeout(() => setToastMsg(''), 4000);
                 }}
+                onBranchUpdated={(updated) => {
+                  setBranches((prev) =>
+                    prev.map((b) => (b.outletId === updated.outletId ? { ...b, ...updated } : b))
+                  );
+                }}
                 onSelectBranch={handleBranchSwitch}
               />
             )}
@@ -595,6 +600,11 @@ export const WebDashboardShell: React.FC<WebDashboardShellProps> = ({
                   setBranches((prev) => [...prev, b]);
                   setToastMsg(`Cabang "${b.namaCabang}" (${b.outletId}) berhasil dibuat!`);
                   setTimeout(() => setToastMsg(''), 4000);
+                }}
+                onBranchUpdated={(updated) => {
+                  setBranches((prev) =>
+                    prev.map((b) => (b.outletId === updated.outletId ? { ...b, ...updated } : b))
+                  );
                 }}
                 onSelectBranch={handleBranchSwitch}
               />
