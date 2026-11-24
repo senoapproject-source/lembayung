@@ -394,14 +394,20 @@ export const WebBranchesTeamPage: React.FC<WebBranchesTeamPageProps> = ({
 
   const canDelete = (target: User) => {
     if (target.id === user.id) return false;
+    // Wajib dinonaktifkan terlebih dahulu sebelum boleh dihapus
+    if (target.active) return false;
     if (!isOwner) return target.role === 'kasir';
     if (target.role === 'owner') return users.filter((u) => u.role === 'owner').length > 1;
     return true;
   };
 
   const handleDelete = async (target: User) => {
+    if (target.active) {
+      alert('Nonaktifkan akun karyawan terlebih dahulu sebelum menghapusnya.');
+      return;
+    }
     if (!canDelete(target)) return;
-    if (!confirm(`Hapus akun "${target.nama}" (${target.role}) dari cabang ini?`)) return;
+    if (!confirm(`Hapus permanen akun "${target.nama}" (${target.role}) dari Pusat & semua cabang?`)) return;
     await db.users.delete(target.id);
     await deleteUserFromSupabase(target.id).catch(() => {});
     await addAuditLog(user, 'HAPUS_PENGGUNA', target.nama, `Role: ${target.role}`);
@@ -492,12 +498,12 @@ export const WebBranchesTeamPage: React.FC<WebBranchesTeamPageProps> = ({
         <div className="px-5 py-4 border-b border-[#eeece5] flex flex-wrap items-center justify-between gap-3">
           <div>
             <h2 className="font-bold text-base text-[#1f1e1d] flex items-center gap-2">
-              <Users size={18} className="text-[#1F7A5A]" /> Tim Cabang Aktif ({users.length})
+              <Users size={18} className="text-[#1F7A5A]" /> Tim Usaha Lintas Cabang ({users.length})
             </h2>
             <p className="text-xs text-[#6b6a68] mt-0.5">
               {isOwner
-                ? 'Owner dapat menambahkan akun Manager (akses Web & Aplikasi cabang) dan Kasir.'
-                : 'Manager dapat menambahkan dan mengatur akun Kasir di cabang ini.'}
+                ? '1 daftar tim berlaku otomatis untuk Pusat & semua cabang. Karyawan resign wajib dinonaktifkan dulu sebelum dihapus.'
+                : 'Manager dapat menambahkan dan mengatur akun Kasir. Karyawan resign wajib dinonaktifkan dulu sebelum dihapus.'}
             </p>
           </div>
           <button

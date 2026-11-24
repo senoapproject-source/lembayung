@@ -397,7 +397,52 @@ export async function deleteIngredientFromSupabase(
 }
 
 /**
- * Hapus satu user tertentu dari tabel public.users di Supabase (untuk outlet aktif)
+ * Dapatkan seluruh outlet_id (Pusat + semua Cabang) yang berada di bawah 1 usaha (Owner yang sama)
+ * agar daftar karyawan (1 Tim Lintas Cabang) selalu sinkron ke Pusat & semua Cabang.
+ */
+async function getRelatedBusinessOutletIds(
+  client: SupabaseClient,
+  currentOutletId: string,
+  parentOutletId?: string | null,
+  ownerEmail?: string | null
+): Promise<string[]> {
+  const cleanCurrent = currentOutletId.trim().toUpperCase();
+  const rootId = (parentOutletId || cleanCurrent).trim().toUpperCase();
+  const cleanOwnerEmail = (ownerEmail || '').trim().toLowerCase();
+  const result = new Set<string>([cleanCurrent, rootId]);
+
+  try {
+    const { data, error } = await client
+      .from('outlets')
+      .select('outlet_id, parent_outlet_id, owner_email');
+    if (!error && Array.isArray(data)) {
+      for (const row of data as Array<{
+        outlet_id?: string | null;
+        parent_outlet_id?: string | null;
+        owner_email?: string | null;
+      }>) {
+        const oid = String(row.outlet_id || '').trim().toUpperCase();
+        const pid = String(row.parent_outlet_id || '').trim().toUpperCase();
+        const remail = String(row.owner_email || '').trim().toLowerCase();
+        if (!oid) continue;
+        if (
+          oid === rootId ||
+          pid === rootId ||
+          pid === cleanCurrent ||
+          (cleanOwnerEmail && remail === cleanOwnerEmail)
+        ) {
+          result.add(oid);
+        }
+      }
+    }
+  } catch {
+    // fallback ke currentOutletId & rootId saja
+  }
+  return Array.from(result);
+}
+
+/**
+ * Hapus satu user tertentu dari tabel public.users di Supabase (lintas Pusat & semua Cabang 1 usaha)
  */
 export async function deleteUserFromSupabase(
   userId: string
@@ -409,10 +454,16 @@ export async function deleteUserFromSupabase(
   }
   try {
     const client = getSupabaseClient(settings);
+    const relatedOutlets = await getRelatedBusinessOutletIds(
+      client,
+      cfg.outletId,
+      settings?.parentOutletId,
+      settings?.ownerEmail
+    );
     const { error } = await client
       .from('users')
       .delete()
-      .eq('outlet_id', cfg.outletId)
+      .in('outlet_id', relatedOutlets)
       .eq('id', userId);
     if (error) {
       return { success: false, outletId: cfg.outletId, error: error.message };
@@ -519,11 +570,17 @@ async function pushAllLocalToSupabaseInternal(includeUsers: boolean): Promise<{
 
   try {
     // 2. Proses penghapusan user & menu yang tertunda (jika dihapus saat offline)
+    const relatedOutlets = await getRelatedBusinessOutletIds(
+      client,
+      outletId,
+      settings?.parentOutletId,
+      settings?.ownerEmail
+    );
     const pendingDeletes = await db.syncQueue.filter((q) => q.action === 'delete').toArray();
     for (const delItem of pendingDeletes) {
       const tbl = (delItem.payload as { table?: string } | undefined)?.table;
       if (tbl === 'users') {
-        await client.from('users').delete().eq('outlet_id', outletId).eq('id', delItem.entityId);
+        await client.from('users').delete().in('outlet_id', relatedOutlets).eq('id', delItem.entityId);
       } else if (tbl === 'menus') {
         await client.from('menu_hpp_history').delete().eq('outlet_id', outletId).eq('menu_id', delItem.entityId);
         await client.from('menus').delete().eq('outlet_id', outletId).eq('id', delItem.entityId);
@@ -532,29 +589,32 @@ async function pushAllLocalToSupabaseInternal(includeUsers: boolean): Promise<{
       }
     }
 
-    // 2b. Tabel users (hanya di-upsert jika diminta agar tidak menghidupkan kembali user yang dihapus di HP lain)
+    // 2b. Tabel users — 1 Tim Lintas Cabang: sebarkan ke Pusat & seluruh Cabang milik usaha yang sama
     if (includeUsers) {
       const users = await db.users.toArray();
-      await upsertTable(
-        'users',
-        users.map((u) => ({
-          outlet_id: outletId,
-          id: u.id,
-          nama: u.nama,
-          username: u.username,
-          email: u.email || null,
-          no_hp: u.noHp || null,
-          email_verified: u.emailVerified ?? false,
-          password_hash: u.passwordHash,
-          pin: u.pin || null,
-          role: u.role,
-          can_discount: u.canDiscount,
-          can_record_expense: u.canRecordExpense,
-          active: u.active,
-          created_at: u.createdAt,
-          updated_at: u.updatedAt,
-        }))
-      );
+      const userRowsAllBranches: Record<string, unknown>[] = [];
+      for (const oid of relatedOutlets) {
+        for (const u of users) {
+          userRowsAllBranches.push({
+            outlet_id: oid,
+            id: u.id,
+            nama: u.nama,
+            username: u.username,
+            email: u.email || null,
+            no_hp: u.noHp || null,
+            email_verified: u.emailVerified ?? false,
+            password_hash: u.passwordHash,
+            pin: u.pin || null,
+            role: u.role,
+            can_discount: u.canDiscount,
+            can_record_expense: u.canRecordExpense,
+            active: u.active,
+            created_at: u.createdAt,
+            updated_at: u.updatedAt,
+          });
+        }
+      }
+      await upsertTable('users', userRowsAllBranches);
     }
 
     // 3. Tabel expense_categories
@@ -896,6 +956,14 @@ export async function pullAllFromSupabase(overrideOutletId?: string): Promise<{
   }
 
   // 2. Tarik seluruh 11 tabel lainnya secara paralel
+  // Khusus tabel users: ambil 1 Tim Bersama lintas Pusat & semua Cabang milik usaha yang sama
+  const relatedOutlets = await getRelatedBusinessOutletIds(
+    client,
+    targetOutletId,
+    outletRow.parent_outlet_id,
+    outletRow.owner_email || settings?.ownerEmail
+  );
+
   const [
     usersRes,
     catsRes,
@@ -911,7 +979,7 @@ export async function pullAllFromSupabase(overrideOutletId?: string): Promise<{
     shiftsRes,
     attendancesRes,
   ] = await Promise.all([
-    client.from('users').select('*').eq('outlet_id', targetOutletId),
+    client.from('users').select('*').in('outlet_id', relatedOutlets),
     client.from('expense_categories').select('*').eq('outlet_id', targetOutletId),
     client.from('ingredients').select('*').eq('outlet_id', targetOutletId),
     client.from('purchases').select('*').eq('outlet_id', targetOutletId),
@@ -959,22 +1027,31 @@ export async function pullAllFromSupabase(overrideOutletId?: string): Promise<{
     kasirAuthPin: outletRow.kasir_auth_pin || settings?.kasirAuthPin,
   };
 
-  const mappedUsers: User[] = (usersRes.data || []).map((u) => ({
-    id: u.id,
-    nama: u.nama,
-    username: u.username,
-    email: u.email || undefined,
-    noHp: u.no_hp || undefined,
-    emailVerified: Boolean(u.email_verified),
-    passwordHash: u.password_hash,
-    pin: u.pin || undefined,
-    role: u.role,
-    canDiscount: u.can_discount,
-    canRecordExpense: u.can_record_expense,
-    active: u.active,
-    createdAt: u.created_at,
-    updatedAt: u.updated_at,
-  }));
+  // Deduplikasi users lintas cabang berdasarkan user.id (ambil versi updated_at paling baru)
+  const dedupedUserMap = new Map<string, User>();
+  for (const u of usersRes.data || []) {
+    const mapped: User = {
+      id: u.id,
+      nama: u.nama,
+      username: u.username,
+      email: u.email || undefined,
+      noHp: u.no_hp || undefined,
+      emailVerified: Boolean(u.email_verified),
+      passwordHash: u.password_hash,
+      pin: u.pin || undefined,
+      role: u.role,
+      canDiscount: u.can_discount,
+      canRecordExpense: u.can_record_expense,
+      active: u.active,
+      createdAt: u.created_at,
+      updatedAt: u.updated_at,
+    };
+    const prev = dedupedUserMap.get(mapped.id);
+    if (!prev || (mapped.updatedAt || '') >= (prev.updatedAt || '')) {
+      dedupedUserMap.set(mapped.id, mapped);
+    }
+  }
+  const mappedUsers: User[] = Array.from(dedupedUserMap.values());
 
   const mappedCats: ExpenseCategory[] = (catsRes.data || []).map((c) => ({
     id: c.id,

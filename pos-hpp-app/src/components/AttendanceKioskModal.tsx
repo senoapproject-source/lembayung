@@ -176,7 +176,14 @@ export const AttendanceKioskModal: React.FC<AttendanceKioskModalProps> = ({
     if (next.length === 6) {
       const matches = activeUsers.filter((u) => String(u.pin || '').trim() === next);
       if (matches.length === 0) {
-        setError('PIN 6 angka tidak ditemukan. Coba periksa kembali.');
+        const inactiveMatch = users.find(
+          (u) => !u.active && String(u.pin || '').trim() === next
+        );
+        setError(
+          inactiveMatch
+            ? 'Akun ini sedang nonaktif dan tidak dapat melakukan absensi. Hubungi Owner.'
+            : 'PIN 6 angka tidak ditemukan. Coba periksa kembali.'
+        );
         setTimeout(() => setPinInput(''), 350);
         return;
       }

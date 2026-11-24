@@ -39,7 +39,14 @@ export const KasirStandbyScreen: React.FC<KasirStandbyScreenProps> = ({
     if (next.length === 6) {
       const matched = activeUsers.find((u) => String(u.pin || '').trim() === next);
       if (!matched) {
-        setPinError('PIN karyawan tidak dikenali. Periksa kembali 6 angka PIN Anda.');
+        const inactiveMatch = users.find(
+          (u) => !u.active && String(u.pin || '').trim() === next
+        );
+        setPinError(
+          inactiveMatch
+            ? 'Akun ini sedang nonaktif dan tidak dapat membuka kasir. Hubungi Owner.'
+            : 'PIN karyawan tidak dikenali. Periksa kembali 6 angka PIN Anda.'
+        );
         setTimeout(() => setPinInput(''), 350);
         return;
       }

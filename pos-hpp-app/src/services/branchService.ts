@@ -180,24 +180,30 @@ export async function createNewBranch(params: {
         .eq('outlet_id', params.currentSettings.outletId);
     }
 
-    // 3. Salin akun Owner ke tabel users cabang baru (dengan id baru atau sama agar login tetap mulus)
+    // 3. Salin seluruh tim (Owner, Manager, & Kasir — 1 Tim Lintas Cabang) ke tabel users cabang baru
+    const localTeam = await db.users.toArray();
+    const teamToCopy: User[] =
+      localTeam.length > 0 && localTeam.some((u) => u.id === params.owner.id)
+        ? localTeam
+        : [params.owner, ...localTeam];
     const { error: userErr } = await client.from('users').upsert(
-      {
+      teamToCopy.map((member) => ({
         outlet_id: newOutletId,
-        id: params.owner.id,
-        nama: params.owner.nama,
-        username: params.owner.username,
-        email: ownerEmail || null,
-        email_verified: params.owner.emailVerified ?? true,
-        password_hash: params.owner.passwordHash,
-        pin: params.owner.pin || null,
-        role: 'owner',
-        can_discount: true,
-        can_record_expense: true,
-        active: true,
-        created_at: nowIso,
-        updated_at: nowIso,
-      },
+        id: member.id,
+        nama: member.nama,
+        username: member.username,
+        email: member.id === params.owner.id ? ownerEmail || member.email || null : member.email || null,
+        no_hp: member.noHp || null,
+        email_verified: member.emailVerified ?? (member.role === 'owner'),
+        password_hash: member.passwordHash || '',
+        pin: member.pin || null,
+        role: member.role,
+        can_discount: member.canDiscount,
+        can_record_expense: member.canRecordExpense,
+        active: member.active,
+        created_at: member.createdAt || nowIso,
+        updated_at: member.updatedAt || nowIso,
+      })),
       { onConflict: 'outlet_id,id' }
     );
     if (userErr) return { success: false, error: userErr.message };

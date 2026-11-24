@@ -506,6 +506,8 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
 
   const canDeleteUser = (target: User): boolean => {
     if (target.id === user.id) return false;
+    // Karyawan resign wajib dinonaktifkan terlebih dahulu sebelum boleh dihapus
+    if (target.active) return false;
     if (user.role === 'manager') {
       return target.role === 'kasir';
     }
@@ -518,6 +520,10 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   };
 
   const handleDeleteUser = async (target: User) => {
+    if (target.active) {
+      alert('Nonaktifkan akun karyawan terlebih dahulu sebelum menghapusnya.');
+      return;
+    }
     if (!canDeleteUser(target)) {
       alert('Akun Owner utama atau akun yang sedang login tidak dapat dihapus.');
       return;
@@ -1611,8 +1617,13 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                   onClick={() => handleDeleteUser(editingUser)}
                   className="h-11 rounded-[10px] border border-[#f5c2bc] bg-[#fdf7f6] hover:bg-[#fbe4e1] text-[#9b1c12] font-semibold text-sm flex items-center justify-center gap-1.5 transition"
                 >
-                  <Trash2 size={15} /> Hapus Pengguna Ini
+                  <Trash2 size={15} /> Hapus Karyawan (Resign)
                 </button>
+              )}
+              {editingUser && editingUser.id !== user.id && editingUser.role !== 'owner' && editingUser.active && (
+                <div className="text-[11px] text-[#6b6a68] text-center bg-[#faf9f5] border border-[#eeece5] rounded-xl px-3 py-2">
+                  Ingin menghapus karyawan yang resign? Matikan <strong>Status akun aktif</strong> lalu simpan terlebih dahulu.
+                </div>
               )}
             </form>
           </div>

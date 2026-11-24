@@ -212,6 +212,16 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, onEnterKas
         return;
       }
 
+      // 3b. Jika user nonaktif mencoba memasukkan PIN -> tolak dengan pesan jelas
+      const inactiveMatch = (users ?? []).find(
+        (u) => !u.active && String(u.pin || '').trim() === nextPin
+      );
+      if (inactiveMatch) {
+        setError('Akun ini sedang nonaktif. Hubungi Owner.');
+        setTimeout(() => setPinInput(''), 350);
+        return;
+      }
+
       setError('PIN tidak dikenali. Periksa kembali 6 angka PIN Anda.');
       setTimeout(() => setPinInput(''), 350);
     }
