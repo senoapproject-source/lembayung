@@ -1,7 +1,14 @@
 /**
  * Script Publikasi OTA Live Update Lembayung ke Supabase Storage
- * - Testing (3 digit): npm run publish:ota
- * - Production (2 digit) + auto-sync Testing: npm run publish:ota:prod
+ * Mengikuti standar Semantic Versioning (MAJOR.MINOR.PATCH, selalu 3 digit):
+ * - Testing (default bump PATCH, mis. 1.8.0 -> 1.8.1 -> ... -> 1.8.10):
+ *     npm run publish:ota
+ *     npm run publish:ota -- --minor --notes "Gelombang fitur baru"
+ *     npm run publish:ota -- --version 1.8.1 --notes "Perbaikan bug"
+ * - Production (default bump MINOR, mis. 1.7.0 -> 1.8.0; pakai --patch untuk hotfix 1.8.1):
+ *     npm run publish:ota:prod
+ *     npm run publish:ota:prod -- --patch --notes "Hotfix bug"
+ *     npm run publish:ota:prod -- --major --notes "Rilis besar v2.0.0"
  */
 
 import fs from 'node:fs';
@@ -17,6 +24,9 @@ const DIST_DIR = path.join(ROOT_DIR, 'dist');
 const isProdMode = process.argv.includes('--prod');
 const skipSyncTesting = process.argv.includes('--no-sync-testing');
 const forceUpdateFlag = process.argv.includes('--force');
+const bumpMajorFlag = process.argv.includes('--major');
+const bumpMinorFlag = process.argv.includes('--minor');
+const bumpPatchFlag = process.argv.includes('--patch');
 
 function getFlagValue(flagName) {
   const idx = process.argv.indexOf(flagName);
@@ -29,11 +39,14 @@ function getFlagValue(flagName) {
 }
 
 const customMinVersion = getFlagValue('--min');
+const flagVersion = getFlagValue('--version');
+const flagNotes = getFlagValue('--notes');
 const positionalArgs = [];
+const valueFlags = new Set(['--min', '--version', '--notes']);
 for (let i = 2; i < process.argv.length; i++) {
   const arg = process.argv[i];
-  if (arg === '--min') {
-    i += 1; // skip value
+  if (valueFlags.has(arg)) {
+    i += 1; // skip flag value
     continue;
   }
   if (arg.startsWith('--')) continue;
@@ -81,61 +94,45 @@ function compareSemver(a, b) {
   return 0;
 }
 
-function bumpPatchVersion(ver) {
+function normalizeSemver(ver) {
   const parts = String(ver || '1.0.0')
-    .replace(/^v/i, '')
-    .split('.')
-    .map((n) => parseInt(n, 10) || 0);
-  while (parts.length < 3) parts.push(0);
-  parts[2] += 1;
-  return parts.join('.');
-}
-
-function bumpMinorVersion(ver) {
-  const parts = String(ver || '1.0')
-    .replace(/^v/i, '')
-    .split('.')
-    .map((n) => parseInt(n, 10) || 0);
-  const major = parts[0] ?? 1;
-  const minor = (parts[1] ?? 0) + 1;
-  return `${major}.${minor}`;
-}
-
-function toTestingBaseVersion(prodVer) {
-  const parts = String(prodVer || '1.0')
-    .replace(/^v/i, '')
-    .split('.')
-    .map((n) => parseInt(n, 10) || 0);
-  const major = parts[0] ?? 1;
-  const minor = parts[1] ?? 0;
-  return `${major}.${minor}.0`;
-}
-
-/**
- * Hitung min_required_version otomatis agar 2 versi terakhir tetap bisa dipakai
- * tanpa paksaan (opsional), sedangkan versi di bawah 2 versi terakhir kena Update Wajib.
- * - Production (2 digit): latest v1.4 -> min_required v1.3 (v1.4 & v1.3 aman, v1.2 ke bawah wajib update)
- * - Testing (3 digit):    latest v1.4.3 -> min_required v1.4.2 (v1.4.3 & v1.4.2 aman, v1.4.1 ke bawah wajib update)
- *                         latest v1.4.0 -> min_required v1.3.0 (v1.4.0 & v1.3.x aman, v1.2.x ke bawah wajib update)
- */
-function computeMinRequiredVersion(version, mode) {
-  const parts = String(version || '1.0')
     .replace(/^v/i, '')
     .split('.')
     .map((n) => parseInt(n, 10) || 0);
   const major = parts[0] ?? 1;
   const minor = parts[1] ?? 0;
   const patch = parts[2] ?? 0;
+  return `${major}.${minor}.${patch}`;
+}
 
-  if (mode === 'production') {
-    if (minor > 0) return `${major}.${minor - 1}`;
-    return `${major}.0`;
-  }
+function bumpPatchVersion(ver) {
+  const [major, minor, patch] = normalizeSemver(ver).split('.').map(Number);
+  return `${major}.${minor}.${patch + 1}`;
+}
 
-  // Testing (3 digit)
+function bumpMinorVersion(ver) {
+  const [major, minor] = normalizeSemver(ver).split('.').map(Number);
+  return `${major}.${minor + 1}.0`;
+}
+
+function bumpMajorVersion(ver) {
+  const [major] = normalizeSemver(ver).split('.').map(Number);
+  return `${major + 1}.0.0`;
+}
+
+/**
+ * Hitung min_required_version otomatis (SemVer 3 digit) agar 2 versi terakhir tetap opsional,
+ * sedangkan versi di bawah 2 versi terakhir terkena Pembaruan Wajib:
+ * - latest 1.8.3 -> min_required 1.8.2 (1.8.3 & 1.8.2 aman, <= 1.8.1 wajib update)
+ * - latest 1.8.0 -> min_required 1.7.0 (1.8.0 & 1.7.x aman, <= 1.6.x wajib update)
+ * - latest 2.0.0 -> min_required 1.0.0
+ */
+function computeMinRequiredVersion(version) {
+  const [major, minor, patch] = normalizeSemver(version).split('.').map(Number);
   if (patch > 0) return `${major}.${minor}.${patch - 1}`;
   if (minor > 0) return `${major}.${minor - 1}.0`;
-  return `${major}.0.0`;
+  if (major > 1) return `${major - 1}.0.0`;
+  return '1.0.0';
 }
 
 function readCodeAppVersion(mode) {
@@ -199,7 +196,9 @@ async function publishTarget({ mode, version, notes, currentRow }) {
     existingRow = data;
   }
 
-  const minRequiredVersion = customMinVersion || computeMinRequiredVersion(version, mode);
+  const minRequiredVersion = customMinVersion
+    ? normalizeSemver(customMinVersion)
+    : computeMinRequiredVersion(version);
 
   console.log(
     `📝 [${label} 4/5] Memperbarui tabel app_versions (${label}) ke v${version} (min_required: v${minRequiredVersion}${forceUpdateFlag ? ', FORCE ALL' : ''})...`
@@ -270,17 +269,25 @@ async function main() {
     .eq('id', 'android')
     .maybeSingle();
 
-  const customVer = positionalArgs[0] || null;
+  const rawCustomVer = flagVersion || positionalArgs[0] || null;
+  const customVer = rawCustomVer ? normalizeSemver(rawCustomVer) : null;
   const customNotes =
+    flagNotes ||
     positionalArgs[1] ||
     (isProdMode
       ? 'Pembaruan fitur dan peningkatan performa Lembayung.'
       : 'Pembaruan dan perbaikan terbaru Lembayung.');
 
-  const dbVer = currentRow?.latest_version || (isProdMode ? '1.0' : '1.0.0');
-  const highestBase = compareSemver(codeAppVer, dbVer) > 0 ? codeAppVer : dbVer;
-  const nextVersion =
-    customVer || (isProdMode ? bumpMinorVersion(highestBase) : bumpPatchVersion(highestBase));
+  const dbVer = normalizeSemver(currentRow?.latest_version || '1.0.0');
+  const highestBase = compareSemver(codeAppVer, dbVer) > 0 ? normalizeSemver(codeAppVer) : dbVer;
+
+  let nextVersion = customVer;
+  if (!nextVersion) {
+    if (bumpMajorFlag) nextVersion = bumpMajorVersion(highestBase);
+    else if (bumpMinorFlag) nextVersion = bumpMinorVersion(highestBase);
+    else if (bumpPatchFlag) nextVersion = bumpPatchVersion(highestBase);
+    else nextVersion = isProdMode ? bumpMinorVersion(highestBase) : bumpPatchVersion(highestBase);
+  }
 
   await publishTarget({
     mode: primaryMode,
@@ -289,12 +296,12 @@ async function main() {
     currentRow,
   });
 
-  // Saat rilis ke Production (mis. v1.2), otomatis samakan Testing ke v1.2.0
-  // supaya siklus testing berikutnya lanjut di v1.2.1, v1.2.2, dst.
+  // Saat rilis ke Production (mis. v1.8.0), otomatis samakan Testing ke v1.8.0
+  // supaya siklus testing berikutnya lanjut rapi di v1.8.1, v1.8.2, dst.
   if (isProdMode && !skipSyncTesting) {
-    const nextTestingVersion = toTestingBaseVersion(nextVersion);
+    const nextTestingVersion = normalizeSemver(nextVersion);
     console.log(
-      `\n🔄 Menyelaraskan Cuanin Testing ke v${nextTestingVersion} (mengikuti rilis Production v${nextVersion})...`
+      `\n🔄 Menyelaraskan Lembayung Testing ke v${nextTestingVersion} (mengikuti rilis Production v${nextVersion})...`
     );
     await publishTarget({
       mode: 'testing',
