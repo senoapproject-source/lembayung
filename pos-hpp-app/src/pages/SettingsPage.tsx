@@ -24,12 +24,15 @@ import {
   sendDeviceNotification,
   setNotificationsEnabled,
 } from '../services/notificationService';
-import { validatePassword, validatePin } from '../lib/validation';
+import { validateEmail, validatePassword, validatePin } from '../lib/validation';
 import {
   findDuplicatePinOwner,
+  generateStrongPassword,
   generateUniqueSixDigitPin,
+  generateUniqueUsername,
   getDuplicatePinSet,
 } from '../services/attendanceService';
+import { sendEmployeeCredentialsEmail } from '../services/authEmailService';
 import { compressLogoFileToDataUrl } from '../lib/receipt';
 import { CustomSelect } from '../components/CustomSelect';
 import type { AppSettings, RoundingStep, User } from '../types/models';
@@ -82,12 +85,22 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   const [uNama, setUNama] = useState('');
   const [uUsername, setUUsername] = useState('');
   const [uEmail, setUEmail] = useState('');
+  const [uNoHp, setUNoHp] = useState('');
   const [uRole, setURole] = useState<'manager' | 'kasir'>('kasir');
   const [uPassword, setUPassword] = useState('');
   const [uPin, setUPin] = useState('');
   const [uCanDiscount, setUCanDiscount] = useState(false);
   const [uCanRecordExp, setUCanRecordExp] = useState(true);
   const [uActive, setUActive] = useState(true);
+  const [createdCredModal, setCreatedCredModal] = useState<{
+    nama: string;
+    role: 'manager' | 'kasir';
+    username: string;
+    pin: string;
+    password?: string;
+    email: string;
+    emailSent: boolean;
+  } | null>(null);
 
   // Modal Profil Usaha & Pengaturan Struk (FR-SET-01)
   const [showProfileModal, setShowProfileModal] = useState(false);
@@ -210,6 +223,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
     setUNama('');
     setUUsername('');
     setUEmail('');
+    setUNoHp('');
     setURole('kasir');
     setUPassword('');
     setUPin(generateUniqueSixDigitPin(users));
@@ -228,6 +242,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
     setUNama(target.nama);
     setUUsername(target.username);
     setUEmail(target.email ?? '');
+    setUNoHp(target.noHp ?? '');
     setURole(target.role === 'manager' ? 'manager' : 'kasir');
     setUPassword('');
     setUPin(target.pin ?? '');
@@ -240,102 +255,159 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   const handleSaveUser = async (e: React.FormEvent) => {
     e.preventDefault();
     const cleanNama = uNama.trim();
-    const cleanUsername = uUsername.trim();
-    if (!cleanNama || !cleanUsername) return;
+    const cleanEmail = uEmail.trim().toLowerCase();
+    const cleanNoHp = uNoHp.trim();
+    if (!cleanNama) return;
 
-    // Jagaan duplikasi username / email (case-insensitive) di seluruh pengguna toko
     const allUsers = await db.users.toArray();
-    const duplicateUser = allUsers.find(
-      (u) =>
-        u.id !== editingUser?.id &&
-        u.username.trim().toLowerCase() === cleanUsername.toLowerCase()
-    );
-    if (duplicateUser) {
-      alert(
-        `Username / email "${cleanUsername}" sudah digunakan oleh ${duplicateUser.nama}. Silakan gunakan username lain.`
-      );
-      return;
-    }
-
-    const cleanPin = uPin.trim();
-    const pinErr = validatePin(cleanPin);
-    if (pinErr) {
-      alert(pinErr);
-      return;
-    }
-    const dupPinOwner = findDuplicatePinOwner(cleanPin, allUsers, editingUser?.id);
-    if (dupPinOwner) {
-      alert(
-        `PIN "${cleanPin}" sudah dipakai oleh ${dupPinOwner.nama}. Setiap akun wajib memiliki PIN 6 angka yang unik.`
-      );
-      return;
-    }
-
-    if (!editingUser || uPassword.trim()) {
-      const passErr = validatePassword(uPassword);
-      if (passErr) {
-        alert(passErr);
-        return;
-      }
-    }
-
     const nowIso = new Date().toISOString();
 
     if (editingUser) {
-      const cleanEmail = uEmail.trim().toLowerCase();
+      const cleanUsername = uUsername.trim();
+      if (!cleanUsername) {
+        alert('Username wajib diisi.');
+        return;
+      }
+      const duplicateUser = allUsers.find(
+        (u) =>
+          u.id !== editingUser.id &&
+          u.username.trim().toLowerCase() === cleanUsername.toLowerCase()
+      );
+      if (duplicateUser) {
+        alert(
+          `Username "${cleanUsername}" sudah digunakan oleh ${duplicateUser.nama}. Silakan gunakan username lain.`
+        );
+        return;
+      }
+
       const targetRole =
         editingUser.role === 'owner'
           ? 'owner'
           : user.role === 'owner'
           ? uRole
           : 'kasir';
+
+      const effectivePin = user.role === 'owner' ? uPin.trim() : (editingUser.pin || '');
+      if (user.role === 'owner') {
+        const pinErr = validatePin(effectivePin);
+        if (pinErr) {
+          alert(pinErr);
+          return;
+        }
+        const dupPinOwner = findDuplicatePinOwner(effectivePin, allUsers, editingUser.id);
+        if (dupPinOwner) {
+          alert(
+            `PIN "${effectivePin}" sudah dipakai oleh ${dupPinOwner.nama}. Setiap akun wajib memiliki PIN 6 angka yang unik.`
+          );
+          return;
+        }
+      }
+
+      if ((targetRole === 'owner' || targetRole === 'manager') && uPassword.trim()) {
+        const passErr = validatePassword(uPassword);
+        if (passErr) {
+          alert(passErr);
+          return;
+        }
+      }
+
       const patch: Partial<User> = {
-        nama: uNama.trim(),
-        username: uUsername.trim(),
+        nama: cleanNama,
+        username: cleanUsername,
         email: cleanEmail || undefined,
+        noHp: cleanNoHp || undefined,
         role: targetRole,
-        pin: cleanPin,
+        pin: effectivePin || undefined,
         canDiscount: targetRole === 'manager' || targetRole === 'owner' ? true : uCanDiscount,
         canRecordExpense: targetRole === 'manager' || targetRole === 'owner' ? true : uCanRecordExp,
         active: uActive,
         updatedAt: nowIso,
       };
-      if (uPassword.trim()) {
+      if ((targetRole === 'owner' || targetRole === 'manager') && uPassword.trim()) {
         patch.passwordHash = await hashPassword(uPassword);
       }
       await db.users.update(editingUser.id, patch);
-      await addAuditLog(user, 'UBAH_PENGGUNA', uNama.trim(), `Role: ${targetRole} · Aktif: ${uActive}`);
+      await addAuditLog(user, 'UBAH_PENGGUNA', cleanNama, `Role: ${targetRole} · Aktif: ${uActive}`);
       await enqueueSync('master', editingUser.id, 'upsert', { ...patch, isUser: true });
-      notify(`Data pengguna ${uNama.trim()} disimpan.`);
-    } else {
-      const hash = await hashPassword(uPassword);
-      const newUserId = uuidv4();
-      const cleanEmail = uEmail.trim().toLowerCase();
-      const newRole = user.role === 'owner' ? uRole : 'kasir';
-      await db.users.add({
-        id: newUserId,
-        nama: uNama.trim(),
-        username: uUsername.trim(),
-        email: cleanEmail || undefined,
-        passwordHash: hash,
-        pin: cleanPin,
-        role: newRole,
-        canDiscount: newRole === 'manager' ? true : uCanDiscount,
-        canRecordExpense: newRole === 'manager' ? true : uCanRecordExp,
-        active: true,
-        createdAt: nowIso,
-        updatedAt: nowIso,
-      });
-      await addAuditLog(user, 'TAMBAH_PENGGUNA', uNama.trim(), `Role: ${newRole}`);
-      sendDeviceNotification({
-        title: `Pengguna Baru: ${uNama.trim()}`,
-        body: `${newRole === 'manager' ? 'Manager' : 'Kasir'} baru (${uUsername.trim()}) ditambahkan oleh ${user.nama}`,
-        dedupKey: `user-add-${newUserId}`,
-      });
-      await enqueueSync('master', newUserId, 'upsert', { id: newUserId, isUser: true });
-      notify(`${newRole === 'manager' ? 'Manager' : 'Kasir'} ${uNama.trim()} berhasil ditambahkan.`);
+      notify(`Data pengguna ${cleanNama} disimpan.`);
+      setShowAddUser(false);
+      return;
     }
+
+    const emailErr = validateEmail(cleanEmail);
+    if (emailErr) {
+      alert(emailErr);
+      return;
+    }
+    if (cleanNoHp.replace(/\D/g, '').length < 9) {
+      alert('Nomor WhatsApp / HP wajib diisi (minimal 9 angka).');
+      return;
+    }
+
+    const newRole: 'manager' | 'kasir' = user.role === 'owner' ? uRole : 'kasir';
+    const generatedUsername = generateUniqueUsername(cleanNama, allUsers);
+    const generatedPin = generateUniqueSixDigitPin(allUsers);
+    const generatedPassword = newRole === 'manager' ? generateStrongPassword() : undefined;
+    const hash = generatedPassword ? await hashPassword(generatedPassword) : '';
+
+    const newUserId = uuidv4();
+    await db.users.add({
+      id: newUserId,
+      nama: cleanNama,
+      username: generatedUsername,
+      email: cleanEmail,
+      noHp: cleanNoHp,
+      passwordHash: hash,
+      pin: generatedPin,
+      role: newRole,
+      canDiscount: newRole === 'manager' ? true : uCanDiscount,
+      canRecordExpense: newRole === 'manager' ? true : uCanRecordExp,
+      active: true,
+      createdAt: nowIso,
+      updatedAt: nowIso,
+    });
+    await addAuditLog(user, 'TAMBAH_PENGGUNA', cleanNama, `Role: ${newRole} · ${cleanEmail}`);
+    sendDeviceNotification({
+      title: `Pengguna Baru: ${cleanNama}`,
+      body: `${newRole === 'manager' ? 'Manager' : 'Kasir'} baru (${generatedUsername}) ditambahkan oleh ${user.nama}`,
+      dedupKey: `user-add-${newUserId}`,
+    });
+    await enqueueSync('master', newUserId, 'upsert', { id: newUserId, isUser: true });
+
+    let emailSent = false;
+    if (navigator.onLine) {
+      const mailRes = await sendEmployeeCredentialsEmail({
+        email: cleanEmail,
+        nama: cleanNama,
+        role: newRole,
+        username: generatedUsername,
+        pin: generatedPin,
+        password: generatedPassword,
+        namaUsaha: settings.namaUsaha || 'Lembayung',
+        namaCabang: settings.namaCabang || 'Pusat',
+        outletId: settings.outletId || '',
+      }).catch(() => ({ success: false }));
+      emailSent = Boolean(mailRes.success);
+    }
+
     setShowAddUser(false);
+    if (user.role === 'owner') {
+      setCreatedCredModal({
+        nama: cleanNama,
+        role: newRole,
+        username: generatedUsername,
+        pin: generatedPin,
+        password: generatedPassword,
+        email: cleanEmail,
+        emailSent,
+      });
+    } else {
+      notify(
+        emailSent
+          ? `${cleanNama} berhasil ditambahkan. Username & PIN dikirim ke ${cleanEmail}.`
+          : `${cleanNama} berhasil ditambahkan.`
+      );
+    }
   };
 
   const canDeleteUser = (target: User): boolean => {
@@ -862,13 +934,13 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                           </span>
                         )}
                         {u.pin && !hasDupPin && (
-                          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-[#e4f1ea] text-[#1F7A5A]">
-                            PIN
+                          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-[#e4f1ea] text-[#1F7A5A] font-mono">
+                            {user.role === 'owner' ? `PIN: ${u.pin}` : 'PIN Aktif'}
                           </span>
                         )}
                         {hasDupPin && (
                           <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-[#fbeed9] text-[#7a4300]">
-                            PIN Duplikat
+                            {user.role === 'owner' ? `PIN Duplikat (${u.pin})` : 'PIN Duplikat'}
                           </span>
                         )}
                       </div>
@@ -1181,25 +1253,19 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
             </div>
             <form onSubmit={handleSaveUser} className="flex flex-col gap-3">
               <div>
-                <label className="block text-xs font-medium text-[#4a4947] mb-1">Nama</label>
+                <label className="block text-xs font-medium text-[#4a4947] mb-1">
+                  Nama Lengkap *
+                </label>
                 <input
                   type="text"
                   value={uNama}
                   onChange={(e) => setUNama(e.target.value)}
+                  placeholder="Contoh: Budi Santoso"
                   className="w-full h-10 border border-[#d6d3c8] rounded-[10px] px-3 text-sm"
                   required
                 />
               </div>
-              <div>
-                <label className="block text-xs font-medium text-[#4a4947] mb-1">Username</label>
-                <input
-                  type="text"
-                  value={uUsername}
-                  onChange={(e) => setUUsername(e.target.value)}
-                  className="w-full h-10 border border-[#d6d3c8] rounded-[10px] px-3 text-sm"
-                  required
-                />
-              </div>
+
               {user.role === 'owner' && editingUser?.role !== 'owner' && (
                 <div>
                   <label className="block text-xs font-medium text-[#4a4947] mb-1">Peran (Role)</label>
@@ -1229,53 +1295,88 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                   </div>
                 </div>
               )}
-              {(editingUser?.role === 'owner' || uRole === 'manager') && (
-                <div>
-                  <label className="block text-xs font-medium text-[#4a4947] mb-1">
-                    Email {editingUser?.role === 'owner' ? 'Owner' : 'Manager'} (untuk login Website &amp; laporan)
-                  </label>
-                  <input
-                    type="email"
-                    value={uEmail}
-                    onChange={(e) => setUEmail(e.target.value)}
-                    placeholder="nama@gmail.com"
-                    className="w-full h-10 border border-[#d6d3c8] rounded-[10px] px-3 text-sm"
-                  />
+
+              <div>
+                <label className="block text-xs font-medium text-[#4a4947] mb-1">
+                  Email Karyawan *
+                </label>
+                <input
+                  type="email"
+                  value={uEmail}
+                  onChange={(e) => setUEmail(e.target.value)}
+                  placeholder="nama@gmail.com"
+                  className="w-full h-10 border border-[#d6d3c8] rounded-[10px] px-3 text-sm"
+                  required={!editingUser}
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-[#4a4947] mb-1">
+                  No. WhatsApp / HP *
+                </label>
+                <input
+                  type="tel"
+                  inputMode="tel"
+                  value={uNoHp}
+                  onChange={(e) => setUNoHp(e.target.value)}
+                  placeholder="081234567890"
+                  className="w-full h-10 border border-[#d6d3c8] rounded-[10px] px-3 text-sm"
+                  required={!editingUser}
+                />
+              </div>
+
+              {!editingUser ? (
+                <div className="bg-[#f4f9f6] border border-[#c5dfd1] rounded-xl px-3 py-2.5 text-[11px] text-[#1f4d3a] leading-relaxed">
+                  <strong>Username</strong> &amp; <strong>PIN 6 angka</strong>
+                  {uRole === 'manager' ? ' beserta Kata Sandi sementara Manager' : ''} akan dibuat otomatis oleh sistem dan dikirim ke email karyawan.
                 </div>
+              ) : (
+                <>
+                  <div>
+                    <label className="block text-xs font-medium text-[#4a4947] mb-1">Username</label>
+                    <input
+                      type="text"
+                      value={uUsername}
+                      onChange={(e) => setUUsername(e.target.value)}
+                      className="w-full h-10 border border-[#d6d3c8] rounded-[10px] px-3 text-sm"
+                      required
+                    />
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    {(editingUser.role === 'owner' || uRole === 'manager') && (
+                      <div>
+                        <label className="block text-xs font-medium text-[#4a4947] mb-1">
+                          Reset Kata Sandi
+                        </label>
+                        <input
+                          type="password"
+                          value={uPassword}
+                          onChange={(e) => setUPassword(e.target.value)}
+                          placeholder="Kosongkan jika tetap"
+                          className="w-full h-10 border border-[#d6d3c8] rounded-[10px] px-3 text-sm"
+                        />
+                      </div>
+                    )}
+                    {user.role === 'owner' && (
+                      <div>
+                        <label className="block text-xs font-medium text-[#4a4947] mb-1">
+                          PIN 6 Angka (Khusus Owner)
+                        </label>
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          maxLength={6}
+                          value={uPin}
+                          onChange={(e) => setUPin(e.target.value.replace(/\D/g, ''))}
+                          placeholder="Wajib 6 angka"
+                          className="w-full h-10 border border-[#d6d3c8] rounded-[10px] px-3 text-sm font-mono font-bold tracking-widest"
+                          required
+                        />
+                      </div>
+                    )}
+                  </div>
+                </>
               )}
-              <div className="grid grid-cols-2 gap-2.5">
-                <div>
-                  <label className="block text-xs font-medium text-[#4a4947] mb-1">
-                    {editingUser ? 'Reset Kata Sandi' : 'Kata Sandi *'}
-                  </label>
-                  <input
-                    type="password"
-                    value={uPassword}
-                    onChange={(e) => setUPassword(e.target.value)}
-                    placeholder={editingUser ? 'Kosongkan jika tetap' : 'aBcd3fgh!'}
-                    className="w-full h-10 border border-[#d6d3c8] rounded-[10px] px-3 text-sm"
-                    required={!editingUser}
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-[#4a4947] mb-1">
-                    PIN Keamanan (6 Angka) *
-                  </label>
-                  <input
-                    type="password"
-                    inputMode="numeric"
-                    maxLength={6}
-                    value={uPin}
-                    onChange={(e) => setUPin(e.target.value.replace(/\D/g, ''))}
-                    placeholder="Wajib 6 angka"
-                    className="w-full h-10 border border-[#d6d3c8] rounded-[10px] px-3 text-sm"
-                    required
-                  />
-                </div>
-              </div>
-              <div className="text-[11px] text-[#6b6a68] -mt-1">
-                Kata sandi min. 8 karakter: huruf besar, kecil, angka &amp; simbol (misal: <code>aBcd3fgh!</code>). PIN wajib 6 angka.
-              </div>
 
               {editingUser?.role !== 'owner' && (
                 <>
@@ -1328,6 +1429,51 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                 </button>
               )}
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Kredensial Karyawan Baru (Khusus Owner) */}
+      {createdCredModal && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+          <div className="bg-white w-full max-w-[390px] rounded-2xl p-5 flex flex-col gap-3.5 shadow-xl border border-[#e2e0d8]">
+            <div className="flex justify-between items-center">
+              <div className="font-bold text-base text-[#1F7A5A]">Karyawan Berhasil Didaftarkan</div>
+              <button type="button" onClick={() => setCreatedCredModal(null)}>
+                <X size={18} className="text-[#6b6a68]" />
+              </button>
+            </div>
+            <div className="text-xs text-[#6b6a68]">
+              <strong>{createdCredModal.nama}</strong> ({createdCredModal.role === 'manager' ? 'Manager' : 'Kasir'})
+              {createdCredModal.emailSent
+                ? ` · Kredensial otomatis dikirim ke ${createdCredModal.email}.`
+                : ` · Catat kredensial berikut (email belum terkirim saat offline).`}
+            </div>
+            <div className="bg-[#f4f9f6] border border-[#c5dfd1] rounded-xl p-3.5 flex flex-col gap-2 text-xs">
+              <div className="flex justify-between">
+                <span className="text-[#6b6a68]">Username</span>
+                <span className="font-mono font-bold text-[#1f1e1d]">{createdCredModal.username}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-[#6b6a68]">PIN Pribadi</span>
+                <span className="font-mono font-extrabold text-sm tracking-widest text-[#1F7A5A]">
+                  {createdCredModal.pin}
+                </span>
+              </div>
+              {createdCredModal.password && (
+                <div className="flex justify-between border-t border-[#c5dfd1] pt-2">
+                  <span className="text-[#6b6a68]">Kata Sandi Manager</span>
+                  <span className="font-mono font-bold text-[#1f1e1d]">{createdCredModal.password}</span>
+                </div>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={() => setCreatedCredModal(null)}
+              className="h-10 rounded-xl bg-[#1F7A5A] text-white text-xs font-semibold"
+            >
+              Tutup
+            </button>
           </div>
         </div>
       )}

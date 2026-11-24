@@ -1152,6 +1152,84 @@ Deno.serve(async (req: Request) => {
       return jsonRes({ success: true, sentCount });
     }
 
+    // =========================================================================
+    // 10b. KIRIM EMAIL KREDENSIAL KARYAWAN BARU (USERNAME, PIN, & PASSWORD MANAGER)
+    // =========================================================================
+    if (action === 'send_employee_credentials') {
+      const email = String(payload.email || '').trim().toLowerCase();
+      const nama = String(payload.nama || 'Karyawan').trim();
+      const role = String(payload.role || 'kasir').trim().toLowerCase();
+      const username = String(payload.username || '').trim();
+      const pin = String(payload.pin || '').trim();
+      const password = String(payload.password || '').trim();
+      const namaUsaha = String(payload.namaUsaha || 'Lembayung').trim();
+      const namaCabang = String(payload.namaCabang || 'Pusat').trim();
+      const outletId = String(payload.outletId || '').trim().toUpperCase();
+
+      if (!email || !username || !pin) {
+        return jsonRes({ success: false, error: 'Email, username, dan PIN wajib diisi.' }, 200);
+      }
+
+      const roleLabel = role === 'manager' ? 'Manager' : 'Kasir';
+      const passwordRow =
+        role === 'manager' && password
+          ? `
+            <tr>
+              <td style="padding:8px 0;color:#6b6a68;font-size:13px;">Kata Sandi Sementara</td>
+              <td style="padding:8px 0;font-weight:700;font-family:monospace;font-size:14px;color:#1f1e1d;text-align:right;">${password}</td>
+            </tr>
+          `
+          : '';
+
+      const htmlContent = `
+        <div style="font-family:Inter,Arial,sans-serif;max-width:520px;margin:0 auto;padding:24px;background:#faf9f5;color:#1f1e1d;">
+          <div style="background:#ffffff;border:1px solid #e2e0d8;border-radius:16px;padding:24px;">
+            <div style="font-size:12px;font-weight:700;color:#1F7A5A;text-transform:uppercase;letter-spacing:0.06em;">Lembayung POS</div>
+            <h2 style="margin:8px 0 6px;font-size:20px;color:#1f1e1d;">Akun ${roleLabel} Anda Sudah Aktif</h2>
+            <p style="margin:0 0 18px;font-size:13px;color:#4a4947;line-height:1.5;">
+              Halo <strong>${nama}</strong>, Anda telah didaftarkan sebagai <strong>${roleLabel}</strong> di <strong>${namaUsaha} (${namaCabang})</strong>. Berikut informasi akun pribadi Anda (mohon jaga kerahasiaannya):
+            </p>
+            <div style="background:#f4f9f6;border:1px solid #c5dfd1;border-radius:12px;padding:14px 16px;margin-bottom:16px;">
+              <table style="width:100%;border-collapse:collapse;">
+                <tr>
+                  <td style="padding:8px 0;color:#6b6a68;font-size:13px;">Kode Toko (ID Outlet)</td>
+                  <td style="padding:8px 0;font-weight:700;font-family:monospace;font-size:14px;color:#1F7A5A;text-align:right;">${outletId || '-'}</td>
+                </tr>
+                <tr>
+                  <td style="padding:8px 0;color:#6b6a68;font-size:13px;">Username</td>
+                  <td style="padding:8px 0;font-weight:700;font-family:monospace;font-size:14px;color:#1f1e1d;text-align:right;">${username}</td>
+                </tr>
+                <tr>
+                  <td style="padding:8px 0;color:#6b6a68;font-size:13px;">PIN Pribadi (6 Angka)</td>
+                  <td style="padding:8px 0;font-weight:800;font-family:monospace;font-size:18px;letter-spacing:0.2em;color:#1F7A5A;text-align:right;">${pin}</td>
+                </tr>
+                ${passwordRow}
+              </table>
+            </div>
+            <p style="margin:0;font-size:12px;color:#6b6a68;line-height:1.5;">
+              ${
+                role === 'manager'
+                  ? 'Gunakan Email & Kata Sandi di atas untuk masuk ke Website Backoffice atau konfirmasi login Manager di aplikasi. Kata sandi dapat diubah kapan saja melalui menu Pengaturan.'
+                  : 'Gunakan PIN 6 angka di atas untuk Absen Masuk/Pulang dan Buka Kasir pada perangkat kasir toko.'
+              }
+            </p>
+          </div>
+        </div>
+      `;
+
+      await sendBrevoEmail({
+        toEmail: email,
+        toName: nama,
+        subject: `[Lembayung] Akun ${roleLabel} Anda di ${namaUsaha} — Username & PIN`,
+        htmlContent,
+      });
+
+      return jsonRes({
+        success: true,
+        message: `Username & PIN berhasil dikirim ke email ${email}.`,
+      });
+    }
+
     return jsonRes({ success: false, error: `Aksi "${action}" tidak dikenali.` }, 400);
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'Terjadi kesalahan pada server email.';

@@ -178,3 +178,28 @@ export async function lookupOwnerOutletIdInCloud(identifier: string): Promise<st
     return null;
   }
 }
+
+export async function sendEmployeeCredentialsEmail(params: {
+  email: string;
+  nama: string;
+  role: 'manager' | 'kasir';
+  username: string;
+  pin: string;
+  password?: string;
+  namaUsaha: string;
+  namaCabang?: string;
+  outletId: string;
+}): Promise<AuthEmailResponse> {
+  return invokeAuthEmailFunction({
+    action: 'send_employee_credentials',
+    email: params.email.trim().toLowerCase(),
+    nama: params.nama.trim(),
+    role: params.role,
+    username: params.username.trim(),
+    pin: params.pin.trim(),
+    password: params.password || '',
+    namaUsaha: params.namaUsaha.trim(),
+    namaCabang: params.namaCabang?.trim() || 'Pusat',
+    outletId: params.outletId.trim().toUpperCase(),
+  });
+}

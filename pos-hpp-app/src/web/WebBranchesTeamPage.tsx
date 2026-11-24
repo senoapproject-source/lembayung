@@ -6,7 +6,13 @@ import { addAuditLog, enqueueSync } from '../db/actions';
 import { createNewBranch } from '../services/branchService';
 import { deleteUserFromSupabase } from '../services/syncService';
 import { validateEmail, validatePassword, validatePin } from '../lib/validation';
-import { findDuplicatePinOwner, generateUniqueSixDigitPin } from '../services/attendanceService';
+import {
+  findDuplicatePinOwner,
+  generateStrongPassword,
+  generateUniqueSixDigitPin,
+  generateUniqueUsername,
+} from '../services/attendanceService';
+import { sendEmployeeCredentialsEmail } from '../services/authEmailService';
 import type { AppSettings, BranchInfo, User } from '../types/models';
 import {
   Building2,
@@ -55,6 +61,7 @@ export const WebBranchesTeamPage: React.FC<WebBranchesTeamPageProps> = ({
   const [uNama, setUNama] = useState('');
   const [uUsername, setUUsername] = useState('');
   const [uEmail, setUEmail] = useState('');
+  const [uNoHp, setUNoHp] = useState('');
   const [uRole, setURole] = useState<'manager' | 'kasir'>('kasir');
   const [uPassword, setUPassword] = useState('');
   const [uPin, setUPin] = useState('');
@@ -62,6 +69,15 @@ export const WebBranchesTeamPage: React.FC<WebBranchesTeamPageProps> = ({
   const [uCanExpense, setUCanExpense] = useState(true);
   const [uActive, setUActive] = useState(true);
   const [userErr, setUserErr] = useState('');
+  const [createdCredModal, setCreatedCredModal] = useState<{
+    nama: string;
+    role: 'manager' | 'kasir';
+    username: string;
+    pin: string;
+    password?: string;
+    email: string;
+    emailSent: boolean;
+  } | null>(null);
 
   const handleCopyOutlet = async (oid: string) => {
     await navigator.clipboard?.writeText(oid);
@@ -107,6 +123,7 @@ export const WebBranchesTeamPage: React.FC<WebBranchesTeamPageProps> = ({
     setUNama('');
     setUUsername('');
     setUEmail('');
+    setUNoHp('');
     setURole('kasir');
     setUPassword('');
     setUPin(generateUniqueSixDigitPin(users));
@@ -123,6 +140,7 @@ export const WebBranchesTeamPage: React.FC<WebBranchesTeamPageProps> = ({
     setUNama(target.nama);
     setUUsername(target.username);
     setUEmail(target.email || '');
+    setUNoHp(target.noHp || '');
     setURole(target.role === 'manager' ? 'manager' : 'kasir');
     setUPassword('');
     setUPin(target.pin || '');
@@ -137,89 +155,144 @@ export const WebBranchesTeamPage: React.FC<WebBranchesTeamPageProps> = ({
     e.preventDefault();
     setUserErr('');
     const cleanNama = uNama.trim();
-    const cleanUsername = uUsername.trim();
     const cleanEmail = uEmail.trim().toLowerCase();
-    if (!cleanNama || !cleanUsername) {
-      setUserErr('Nama dan username wajib diisi.');
+    const cleanNoHp = uNoHp.trim();
+    if (!cleanNama) {
+      setUserErr('Nama lengkap wajib diisi.');
       return;
-    }
-
-    const dup = users.find(
-      (u) =>
-        u.id !== editingUser?.id &&
-        u.username.trim().toLowerCase() === cleanUsername.toLowerCase()
-    );
-    if (dup) {
-      setUserErr(`Username "${cleanUsername}" sudah digunakan oleh ${dup.nama}.`);
-      return;
-    }
-
-    const finalRole =
-      editingUser?.role === 'owner' ? 'owner' : isOwner ? uRole : 'kasir';
-
-    if (finalRole === 'manager' && cleanEmail) {
-      const eErr = validateEmail(cleanEmail);
-      if (eErr) return setUserErr(eErr);
-    }
-    if (finalRole === 'manager' && !cleanEmail) {
-      return setUserErr('Email wajib diisi untuk akun Manager agar bisa login di Website.');
-    }
-
-    const pinErr = validatePin(uPin);
-    if (pinErr) return setUserErr(pinErr);
-    const dupPin = findDuplicatePinOwner(uPin, users, editingUser?.id);
-    if (dupPin) {
-      return setUserErr(
-        `PIN "${uPin.trim()}" sudah dipakai oleh ${dupPin.nama}. Setiap akun wajib memiliki PIN 6 angka yang unik.`
-      );
-    }
-
-    if (!editingUser || uPassword.trim()) {
-      const passErr = validatePassword(uPassword);
-      if (passErr) return setUserErr(passErr);
     }
 
     const nowIso = new Date().toISOString();
     if (editingUser) {
+      const cleanUsername = uUsername.trim();
+      if (!cleanUsername) {
+        setUserErr('Username wajib diisi.');
+        return;
+      }
+      const dup = users.find(
+        (u) =>
+          u.id !== editingUser.id &&
+          u.username.trim().toLowerCase() === cleanUsername.toLowerCase()
+      );
+      if (dup) {
+        setUserErr(`Username "${cleanUsername}" sudah digunakan oleh ${dup.nama}.`);
+        return;
+      }
+
+      const finalRole =
+        editingUser.role === 'owner' ? 'owner' : isOwner ? uRole : 'kasir';
+
+      if (finalRole === 'manager' && cleanEmail) {
+        const eErr = validateEmail(cleanEmail);
+        if (eErr) return setUserErr(eErr);
+      }
+
+      const effectivePin = isOwner ? uPin.trim() : (editingUser.pin || '');
+      if (isOwner) {
+        const pinErr = validatePin(effectivePin);
+        if (pinErr) return setUserErr(pinErr);
+        const dupPin = findDuplicatePinOwner(effectivePin, users, editingUser.id);
+        if (dupPin) {
+          return setUserErr(
+            `PIN "${effectivePin}" sudah dipakai oleh ${dupPin.nama}. Setiap akun wajib memiliki PIN 6 angka yang unik.`
+          );
+        }
+      }
+
+      if ((finalRole === 'owner' || finalRole === 'manager') && uPassword.trim()) {
+        const passErr = validatePassword(uPassword);
+        if (passErr) return setUserErr(passErr);
+      }
+
       const patch: Partial<User> = {
         nama: cleanNama,
         username: cleanUsername,
         email: cleanEmail || undefined,
+        noHp: cleanNoHp || undefined,
         role: finalRole,
-        pin: uPin.trim(),
+        pin: effectivePin || undefined,
         canDiscount: finalRole === 'kasir' ? uCanDiscount : true,
         canRecordExpense: finalRole === 'kasir' ? uCanExpense : true,
         active: uActive,
         updatedAt: nowIso,
       };
-      if (uPassword.trim()) {
+      if ((finalRole === 'owner' || finalRole === 'manager') && uPassword.trim()) {
         patch.passwordHash = await hashPassword(uPassword);
       }
       await db.users.update(editingUser.id, patch);
       await addAuditLog(user, 'UBAH_PENGGUNA', cleanNama, `Role: ${finalRole}`);
       await enqueueSync('master', editingUser.id, 'upsert', { ...patch, isUser: true });
-    } else {
-      const id = uuidv4();
-      const passwordHash = await hashPassword(uPassword);
-      const newUser: User = {
-        id,
-        nama: cleanNama,
-        username: cleanUsername,
-        email: cleanEmail || undefined,
-        passwordHash,
-        pin: uPin.trim(),
-        role: finalRole,
-        canDiscount: finalRole === 'kasir' ? uCanDiscount : true,
-        canRecordExpense: finalRole === 'kasir' ? uCanExpense : true,
-        active: true,
-        createdAt: nowIso,
-        updatedAt: nowIso,
-      };
-      await db.users.add(newUser);
-      await addAuditLog(user, 'TAMBAH_PENGGUNA', cleanNama, `Role: ${finalRole}`);
-      await enqueueSync('master', id, 'upsert', { ...newUser, isUser: true });
+      setShowUserModal(false);
+      return;
     }
+
+    // === TAMBAH KARYAWAN BARU (Nama Lengkap, Email, No. WA/HP -> Auto-generate Username, PIN, & Password Manager) ===
+    const emailErr = validateEmail(cleanEmail);
+    if (emailErr) return setUserErr(emailErr);
+    if (cleanNoHp.replace(/\D/g, '').length < 9) {
+      return setUserErr('Nomor WhatsApp / HP wajib diisi (minimal 9 angka).');
+    }
+
+    const finalRole: 'manager' | 'kasir' = isOwner ? uRole : 'kasir';
+    const generatedUsername = generateUniqueUsername(cleanNama, users);
+    const generatedPin = generateUniqueSixDigitPin(users);
+    const generatedPassword = finalRole === 'manager' ? generateStrongPassword() : undefined;
+    const passwordHash = generatedPassword ? await hashPassword(generatedPassword) : '';
+
+    const id = uuidv4();
+    const newUser: User = {
+      id,
+      nama: cleanNama,
+      username: generatedUsername,
+      email: cleanEmail,
+      noHp: cleanNoHp,
+      passwordHash,
+      pin: generatedPin,
+      role: finalRole,
+      canDiscount: finalRole === 'kasir' ? uCanDiscount : true,
+      canRecordExpense: finalRole === 'kasir' ? uCanExpense : true,
+      active: true,
+      createdAt: nowIso,
+      updatedAt: nowIso,
+    };
+    await db.users.add(newUser);
+    await addAuditLog(user, 'TAMBAH_PENGGUNA', cleanNama, `Role: ${finalRole} · ${cleanEmail}`);
+    await enqueueSync('master', id, 'upsert', { ...newUser, isUser: true });
+
+    let emailSent = false;
+    if (navigator.onLine) {
+      const mailRes = await sendEmployeeCredentialsEmail({
+        email: cleanEmail,
+        nama: cleanNama,
+        role: finalRole,
+        username: generatedUsername,
+        pin: generatedPin,
+        password: generatedPassword,
+        namaUsaha: settings?.namaUsaha || 'Lembayung',
+        namaCabang: settings?.namaCabang || 'Pusat',
+        outletId: activeOutletId || settings?.outletId || '',
+      }).catch(() => ({ success: false }));
+      emailSent = Boolean(mailRes.success);
+    }
+
     setShowUserModal(false);
+    if (isOwner) {
+      setCreatedCredModal({
+        nama: cleanNama,
+        role: finalRole,
+        username: generatedUsername,
+        pin: generatedPin,
+        password: generatedPassword,
+        email: cleanEmail,
+        emailSent,
+      });
+    } else {
+      alert(
+        emailSent
+          ? `${cleanNama} berhasil ditambahkan. Username & PIN telah dikirim otomatis ke email ${cleanEmail}.`
+          : `${cleanNama} berhasil ditambahkan.`
+      );
+    }
   };
 
   const canDelete = (target: User) => {
@@ -345,7 +418,8 @@ export const WebBranchesTeamPage: React.FC<WebBranchesTeamPageProps> = ({
               <tr>
                 <th className="py-3 px-4 font-semibold">Nama</th>
                 <th className="py-3 px-3 font-semibold">Username</th>
-                <th className="py-3 px-3 font-semibold">Email</th>
+                <th className="py-3 px-3 font-semibold">Email &amp; WA</th>
+                {isOwner && <th className="py-3 px-3 font-semibold">PIN</th>}
                 <th className="py-3 px-3 font-semibold">Peran</th>
                 <th className="py-3 px-3 font-semibold">Status &amp; Izin</th>
                 <th className="py-3 px-4 font-semibold text-right">Aksi</th>
@@ -356,7 +430,15 @@ export const WebBranchesTeamPage: React.FC<WebBranchesTeamPageProps> = ({
                 <tr key={u.id} className="hover:bg-[#faf9f5]">
                   <td className="py-3 px-4 font-semibold text-[#1f1e1d]">{u.nama}</td>
                   <td className="py-3 px-3 font-mono text-[11px]">{u.username}</td>
-                  <td className="py-3 px-3 text-[#6b6a68]">{u.email || '—'}</td>
+                  <td className="py-3 px-3 text-[#6b6a68]">
+                    <div>{u.email || '—'}</div>
+                    {u.noHp && <div className="text-[10px] text-[#1F7A5A]">{u.noHp}</div>}
+                  </td>
+                  {isOwner && (
+                    <td className="py-3 px-3 font-mono font-bold text-[#1F7A5A]">
+                      {u.pin || '—'}
+                    </td>
+                  )}
                   <td className="py-3 px-3">
                     <span
                       className={`px-2 py-0.5 rounded-full text-[11px] font-bold inline-flex items-center gap-1 ${
@@ -539,75 +621,102 @@ export const WebBranchesTeamPage: React.FC<WebBranchesTeamPageProps> = ({
               </div>
             )}
 
-            <div className="grid grid-cols-2 gap-2.5">
-              <div>
-                <label className="block text-xs font-medium text-[#4a4947] mb-1">Nama *</label>
-                <input
-                  type="text"
-                  value={uNama}
-                  onChange={(e) => setUNama(e.target.value)}
-                  className="w-full h-10 border border-[#d6d3c8] rounded-xl px-3 text-sm"
-                  required
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-[#4a4947] mb-1">Username *</label>
-                <input
-                  type="text"
-                  value={uUsername}
-                  onChange={(e) => setUUsername(e.target.value)}
-                  className="w-full h-10 border border-[#d6d3c8] rounded-xl px-3 text-sm"
-                  required
-                />
-              </div>
+            <div>
+              <label className="block text-xs font-medium text-[#4a4947] mb-1">
+                Nama Lengkap *
+              </label>
+              <input
+                type="text"
+                value={uNama}
+                onChange={(e) => setUNama(e.target.value)}
+                placeholder="Contoh: Budi Santoso"
+                className="w-full h-10 border border-[#d6d3c8] rounded-xl px-3 text-sm"
+                required
+              />
             </div>
 
-            {(editingUser?.role === 'owner' || uRole === 'manager') && (
+            <div className="grid grid-cols-2 gap-2.5">
               <div>
                 <label className="block text-xs font-medium text-[#4a4947] mb-1">
-                  Email (untuk login Website) *
+                  Email Karyawan *
                 </label>
                 <input
                   type="email"
                   value={uEmail}
                   onChange={(e) => setUEmail(e.target.value)}
-                  placeholder="manager@gmail.com"
-                  className="w-full h-10 border border-[#d6d3c8] rounded-xl px-3 text-sm"
-                  required={uRole === 'manager'}
-                />
-              </div>
-            )}
-
-            <div className="grid grid-cols-2 gap-2.5">
-              <div>
-                <label className="block text-xs font-medium text-[#4a4947] mb-1">
-                  {editingUser ? 'Password Baru (opsional)' : 'Kata Sandi *'}
-                </label>
-                <input
-                  type="password"
-                  value={uPassword}
-                  onChange={(e) => setUPassword(e.target.value)}
-                  placeholder="aBcd3fgh!"
+                  placeholder="nama@gmail.com"
                   className="w-full h-10 border border-[#d6d3c8] rounded-xl px-3 text-sm"
                   required={!editingUser}
                 />
               </div>
               <div>
                 <label className="block text-xs font-medium text-[#4a4947] mb-1">
-                  PIN 6 Angka *
+                  No. WhatsApp / HP *
                 </label>
                 <input
-                  type="password"
-                  inputMode="numeric"
-                  maxLength={6}
-                  value={uPin}
-                  onChange={(e) => setUPin(e.target.value.replace(/\D/g, ''))}
-                  placeholder="123456"
+                  type="tel"
+                  inputMode="tel"
+                  value={uNoHp}
+                  onChange={(e) => setUNoHp(e.target.value)}
+                  placeholder="081234567890"
                   className="w-full h-10 border border-[#d6d3c8] rounded-xl px-3 text-sm"
-                  required
+                  required={!editingUser}
                 />
               </div>
             </div>
+
+            {!editingUser ? (
+              <div className="bg-[#f4f9f6] border border-[#c5dfd1] rounded-xl px-3 py-2.5 text-[11px] text-[#1f4d3a] leading-relaxed">
+                <strong>Username</strong> &amp; <strong>PIN 6 angka</strong>
+                {uRole === 'manager' ? ' beserta Kata Sandi sementara Manager' : ''} akan dibuat otomatis dan dikirim langsung ke email karyawan.
+              </div>
+            ) : (
+              <>
+                <div>
+                  <label className="block text-xs font-medium text-[#4a4947] mb-1">Username *</label>
+                  <input
+                    type="text"
+                    value={uUsername}
+                    onChange={(e) => setUUsername(e.target.value)}
+                    className="w-full h-10 border border-[#d6d3c8] rounded-xl px-3 text-sm"
+                    required
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-2.5">
+                  {(editingUser.role === 'owner' || uRole === 'manager') && (
+                    <div>
+                      <label className="block text-xs font-medium text-[#4a4947] mb-1">
+                        Reset Kata Sandi (opsional)
+                      </label>
+                      <input
+                        type="password"
+                        value={uPassword}
+                        onChange={(e) => setUPassword(e.target.value)}
+                        placeholder="Kosongkan jika tetap"
+                        className="w-full h-10 border border-[#d6d3c8] rounded-xl px-3 text-sm"
+                      />
+                    </div>
+                  )}
+                  {isOwner && (
+                    <div>
+                      <label className="block text-xs font-medium text-[#4a4947] mb-1">
+                        PIN 6 Angka (Khusus Owner)
+                      </label>
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        maxLength={6}
+                        value={uPin}
+                        onChange={(e) => setUPin(e.target.value.replace(/\D/g, ''))}
+                        placeholder="123456"
+                        className="w-full h-10 border border-[#d6d3c8] rounded-xl px-3 text-sm font-mono font-bold tracking-widest"
+                        required
+                      />
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
 
             {uRole === 'kasir' && editingUser?.role !== 'owner' && (
               <div className="flex flex-col gap-2 pt-1 text-xs">
@@ -666,6 +775,51 @@ export const WebBranchesTeamPage: React.FC<WebBranchesTeamPageProps> = ({
               </button>
             </div>
           </form>
+        </div>
+      )}
+
+      {/* Modal Kredensial Karyawan Baru (Khusus Owner) */}
+      {createdCredModal && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+          <div className="bg-white w-full max-w-[400px] rounded-2xl p-5 flex flex-col gap-3.5 shadow-xl border border-[#e2e0d8]">
+            <div className="flex justify-between items-center">
+              <div className="font-bold text-base text-[#1F7A5A]">Karyawan Berhasil Didaftarkan</div>
+              <button type="button" onClick={() => setCreatedCredModal(null)}>
+                <X size={18} className="text-[#6b6a68]" />
+              </button>
+            </div>
+            <div className="text-xs text-[#6b6a68]">
+              <strong>{createdCredModal.nama}</strong> ({createdCredModal.role === 'manager' ? 'Manager' : 'Kasir'})
+              {createdCredModal.emailSent
+                ? ` · Kredensial telah dikirim otomatis ke ${createdCredModal.email}.`
+                : ` · Email belum terkirim (pastikan koneksi internet aktif).`}
+            </div>
+            <div className="bg-[#f4f9f6] border border-[#c5dfd1] rounded-xl p-3.5 flex flex-col gap-2 text-xs">
+              <div className="flex justify-between">
+                <span className="text-[#6b6a68]">Username</span>
+                <span className="font-mono font-bold text-[#1f1e1d]">{createdCredModal.username}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-[#6b6a68]">PIN Pribadi</span>
+                <span className="font-mono font-extrabold text-sm tracking-widest text-[#1F7A5A]">
+                  {createdCredModal.pin}
+                </span>
+              </div>
+              {createdCredModal.password && (
+                <div className="flex justify-between border-t border-[#c5dfd1] pt-2">
+                  <span className="text-[#6b6a68]">Kata Sandi Manager</span>
+                  <span className="font-mono font-bold text-[#1f1e1d]">{createdCredModal.password}</span>
+                </div>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={() => setCreatedCredModal(null)}
+              className="h-10 rounded-xl bg-[#1F7A5A] text-white text-xs font-semibold"
+            >
+              Tutup
+            </button>
+          </div>
         </div>
       )}
     </div>

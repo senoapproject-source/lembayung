@@ -363,6 +363,8 @@ ALTER TABLE public.outlets
   ADD COLUMN IF NOT EXISTS work_shifts JSONB;
 ALTER TABLE public.outlets
   ADD COLUMN IF NOT EXISTS kasir_auth_pin TEXT;
+ALTER TABLE public.users
+  ADD COLUMN IF NOT EXISTS no_hp TEXT;
 
 CREATE TABLE IF NOT EXISTS public.attendances (
   outlet_id TEXT NOT NULL,

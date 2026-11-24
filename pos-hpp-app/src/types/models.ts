@@ -7,6 +7,7 @@ export interface User {
   nama: string;
   username: string; // username unik (dipisah dari email untuk Owner)
   email?: string; // alamat email terpisah (wajib & terverifikasi untuk Owner)
+  noHp?: string; // nomor WhatsApp / HP karyawan
   emailVerified?: boolean;
   passwordHash: string; // SHA-256 hash
   pin?: string; // PIN 4-6 digit opsional untuk ganti shift/login cepat

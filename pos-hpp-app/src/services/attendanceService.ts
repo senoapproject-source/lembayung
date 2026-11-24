@@ -77,6 +77,58 @@ export function formatDurationMinutes(minutes?: number): string {
 }
 
 /**
+ * Generate username unik otomatis dari nama lengkap karyawan (mis. "Budi Santoso" -> "budi.santoso").
+ */
+export function generateUniqueUsername(nama: string, existingUsers: User[]): string {
+  const used = new Set(existingUsers.map((u) => u.username.trim().toLowerCase()));
+  const base =
+    nama
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, '')
+      .replace(/\s+/g, '.')
+      .slice(0, 18) || 'karyawan';
+
+  if (!used.has(base)) return base;
+  for (let i = 1; i <= 999; i++) {
+    const candidate = `${base}${i}`;
+    if (!used.has(candidate)) return candidate;
+  }
+  return `${base}${Math.floor(1000 + Math.random() * 9000)}`;
+}
+
+/**
+ * Generate kata sandi acak kuat (10 karakter: huruf kapital, huruf kecil, angka, simbol)
+ * khusus untuk akun Manager baru.
+ */
+export function generateStrongPassword(): string {
+  const upper = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
+  const lower = 'abcdefghijkmnopqrstuvwxyz';
+  const digits = '23456789';
+  const symbols = '!@#$%&*';
+  const all = upper + lower + digits + symbols;
+  const pick = (pool: string) => pool[Math.floor(Math.random() * pool.length)];
+
+  const chars = [
+    pick(upper),
+    pick(upper),
+    pick(lower),
+    pick(lower),
+    pick(lower),
+    pick(digits),
+    pick(digits),
+    pick(symbols),
+    pick(all),
+    pick(all),
+  ];
+  for (let i = chars.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [chars[i], chars[j]] = [chars[j], chars[i]];
+  }
+  return chars.join('');
+}
+
+/**
  * Generate 6-digit PIN acak yang dijamin unik di antara seluruh akun pada outlet ini.
  */
 export function generateUniqueSixDigitPin(existingUsers: User[]): string {
