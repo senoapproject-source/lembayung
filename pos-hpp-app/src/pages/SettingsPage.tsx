@@ -853,7 +853,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
             <div>
               <div className="font-medium text-sm">PIN Otorisasi Mode Kasir (6 Angka)</div>
               <div className="text-xs text-[#6b6a68]">
-                Dipakai untuk masuk ke Mode Kasir &amp; menghapus pesanan tersimpan (Open Bill)
+                Khusus outlet <strong>{settings.outletId || 'ini'}</strong> · Dipakai untuk masuk Mode Kasir &amp; hapus pesanan tersimpan (Open Bill)
               </div>
             </div>
             <button
@@ -861,11 +861,11 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
               onClick={async () => {
                 const generated = generateUniqueSixDigitPin(users);
                 await updateSettings({ kasirAuthPin: generated }, user);
-                notify(`PIN Otorisasi Mode Kasir diperbarui: ${generated}`);
+                notify(`PIN Otorisasi Mode Kasir berhasil di-reset: ${generated}`);
               }}
               className="text-xs font-semibold text-[#1F7A5A] bg-[#e4f1ea] px-2.5 py-1.5 rounded-lg shrink-0 whitespace-nowrap"
             >
-              Acak PIN
+              Reset / Acak PIN
             </button>
           </div>
           <div className="flex items-center gap-2">

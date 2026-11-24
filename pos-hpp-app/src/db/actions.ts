@@ -674,8 +674,28 @@ export function generateOutletCode(namaUsaha: string): string {
 }
 
 /**
+ * Generate PIN Otorisasi Mode Kasir 6 angka acak yang tidak bentrok dengan PIN yang dikecualikan
+ * (mis. PIN pribadi Owner) dan menghindari pola angka terlalu mudah ditebak.
+ */
+export function generateKasirAuthPin(excludePins: string[] = []): string {
+  const excluded = new Set(excludePins.map((p) => p.trim()).filter(Boolean));
+  const weakPatterns = new Set([
+    '000000', '111111', '222222', '333333', '444444',
+    '555555', '666666', '777777', '888888', '999999',
+    '123456', '654321', '012345', '543210',
+  ]);
+  for (let i = 0; i < 300; i++) {
+    const candidate = String(Math.floor(100000 + Math.random() * 900000));
+    if (!excluded.has(candidate) && !weakPatterns.has(candidate)) {
+      return candidate;
+    }
+  }
+  return String(Math.floor(100000 + Math.random() * 900000));
+}
+
+/**
  * Registrasi Usaha Baru (Onboarding Owner Multi-Merchant).
- * Menghapus data demo sebelumnya, membuat Kode Toko (outletId) unik,
+ * Menghapus data demo sebelumnya, membuat Kode Toko (outletId) unik & PIN Otorisasi Mode Kasir,
  * menyimpan profil usaha & akun Owner baru, dan otomatis menyinkronkan ke Cloud Supabase.
  */
 export async function registerNewBusiness(input: {
@@ -689,12 +709,16 @@ export async function registerNewBusiness(input: {
   pin?: string;
   includeSampleData: boolean;
   customOutletId?: string;
-}): Promise<{ owner: User; outletId: string }> {
+  customKasirAuthPin?: string;
+}): Promise<{ owner: User; outletId: string; kasirAuthPin: string }> {
   const nowIso = new Date().toISOString();
   const passwordHash = await hashPassword(input.password);
   const outletId =
     input.customOutletId?.trim().toUpperCase() ||
     generateOutletCode(input.namaUsaha);
+  const kasirAuthPin =
+    input.customKasirAuthPin?.trim() ||
+    generateKasirAuthPin(input.pin ? [input.pin.trim()] : []);
 
   // Bersihkan seluruh database lama
   await db.transaction(
@@ -746,6 +770,7 @@ export async function registerNewBusiness(input: {
         namaCabang: 'Pusat',
         ownerEmail: input.email?.trim().toLowerCase() || undefined,
         alamatUsaha: input.alamatUsaha.trim() || '-',
+        kasirAuthPin,
         cloudSyncMode: 'supabase',
         outletId,
       });
@@ -769,7 +794,7 @@ export async function registerNewBusiness(input: {
     if (navigator.onLine) {
       await pushAllLocalToSupabase({ includeUsers: true }).catch(() => { });
     }
-    return { owner: newOwner, outletId };
+    return { owner: newOwner, outletId, kasirAuthPin };
   }
 
   // Mulai dari kosong (hanya settings, kategori bawaan, dan akun Owner baru)
@@ -809,6 +834,7 @@ export async function registerNewBusiness(input: {
       ambangMepetBepPersen: 10,
       defaultKasirDiscount: false,
       defaultKasirRecordExpense: true,
+      kasirAuthPin,
       lastBackupAt: nowIso,
       cloudSyncMode: 'supabase',
       outletId,
@@ -828,7 +854,7 @@ export async function registerNewBusiness(input: {
     await pushAllLocalToSupabase({ includeUsers: true }).catch(() => { });
   }
 
-  return { owner: newOwner, outletId };
+  return { owner: newOwner, outletId, kasirAuthPin };
 }
 
 /**

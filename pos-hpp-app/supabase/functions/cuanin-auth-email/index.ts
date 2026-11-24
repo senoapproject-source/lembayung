@@ -408,6 +408,7 @@ Deno.serve(async (req: Request) => {
       const namaOwner = String(payload.namaOwner || '').trim();
       const namaUsaha = String(payload.namaUsaha || '').trim();
       const outletId = String(payload.outletId || '').trim().toUpperCase();
+      const kasirAuthPin = String(payload.kasirAuthPin || '').trim();
       const otp = String(payload.otp || '').trim();
       if (!email || !/^\d{6}$/.test(otp)) {
         return jsonRes({ success: false, error: 'Kode verifikasi wajib 6 angka.' }, 200);
@@ -449,10 +450,20 @@ Deno.serve(async (req: Request) => {
 
       await sb.from('email_verifications').update({ used: true }).eq('id', row.id);
 
-      // Langsung kirim email ID Outlet di dalam request verifikasi yang sama agar pasti terkirim!
+      // Langsung kirim email ID Outlet + PIN Otorisasi Mode Kasir di dalam request verifikasi yang sama agar pasti terkirim!
       let welcomeEmailSent = false;
       if (outletId) {
         try {
+          const pinBlockHtml = kasirAuthPin
+            ? `
+                <div style="margin-top:12px; padding-top:12px; border-top:1px dashed #d6d3c8;">
+                  <div style="font-size:12px; color:#6b6a68;">PIN Otorisasi Mode Kasir (6 Angka)</div>
+                  <div style="font-size:22px; font-weight:800; color:#1F7A5A; letter-spacing:4px; margin:4px 0;">${escapeHtml(kasirAuthPin)}</div>
+                  <div style="font-size:11px; color:#6b6a68;">Digunakan untuk masuk ke Mode Kasir &amp; menghapus pesanan tersimpan (Open Bill) khusus pada outlet ini. Dapat dilihat atau di-reset kapan saja melalui menu <strong>Pengaturan</strong>.</div>
+                </div>
+              `
+            : '';
+
           await sendBrevoEmail({
             toEmail: email,
             toName: namaOwner || username,
@@ -469,6 +480,7 @@ Deno.serve(async (req: Request) => {
                 <div style="font-size:15px; font-weight:700; color:#1f1e1d; margin-bottom:6px;">${escapeHtml(username)}</div>
                 <div style="font-size:12px; color:#6b6a68;">Email Terdaftar</div>
                 <div style="font-size:14px; font-weight:600; color:#1f1e1d;">${escapeHtml(email)}</div>
+                ${pinBlockHtml}
               </div>
               <p style="font-size:13px; color:#4a4947;">Gunakan <strong>ID Outlet</strong> di atas saat menghubungkan tablet atau HP kasir baru ke toko Anda.</p>
               `
@@ -484,7 +496,7 @@ Deno.serve(async (req: Request) => {
     }
 
     // =========================================================================
-    // 3. KIRIM EMAIL SELAMAT DATANG + INFORMASI ID OUTLET
+    // 3. KIRIM EMAIL SELAMAT DATANG + INFORMASI ID OUTLET & PIN OTORISASI
     // =========================================================================
     if (action === 'send_welcome_outlet') {
       const email = String(payload.email || '').trim().toLowerCase();
@@ -492,10 +504,21 @@ Deno.serve(async (req: Request) => {
       const namaUsaha = String(payload.namaUsaha || '').trim();
       const username = String(payload.username || '').trim();
       const outletId = String(payload.outletId || '').trim().toUpperCase();
+      const kasirAuthPin = String(payload.kasirAuthPin || '').trim();
 
       if (!email || !outletId) {
         return jsonRes({ success: false, error: 'Email dan ID Outlet wajib diisi.' }, 400);
       }
+
+      const pinBlockHtml = kasirAuthPin
+        ? `
+            <div style="margin-top:12px; padding-top:12px; border-top:1px dashed #d6d3c8;">
+              <div style="font-size:12px; color:#6b6a68;">PIN Otorisasi Mode Kasir (6 Angka)</div>
+              <div style="font-size:22px; font-weight:800; color:#1F7A5A; letter-spacing:4px; margin:4px 0;">${escapeHtml(kasirAuthPin)}</div>
+              <div style="font-size:11px; color:#6b6a68;">Digunakan untuk masuk ke Mode Kasir &amp; menghapus pesanan tersimpan (Open Bill) khusus pada outlet ini. Dapat dilihat atau di-reset kapan saja melalui menu <strong>Pengaturan</strong>.</div>
+            </div>
+          `
+        : '';
 
       await sendBrevoEmail({
         toEmail: email,
@@ -513,6 +536,7 @@ Deno.serve(async (req: Request) => {
             <div style="font-size:15px; font-weight:700; color:#1f1e1d; margin-bottom:6px;">${escapeHtml(username)}</div>
             <div style="font-size:12px; color:#6b6a68;">Email Terdaftar</div>
             <div style="font-size:14px; font-weight:600; color:#1f1e1d;">${escapeHtml(email)}</div>
+            ${pinBlockHtml}
           </div>
           <p style="font-size:13px; color:#4a4947;">Gunakan <strong>ID Outlet</strong> di atas saat menghubungkan tablet atau HP kasir baru ke toko Anda.</p>
           `

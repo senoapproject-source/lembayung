@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { db, hashPassword } from '../db/database';
-import { generateOutletCode, registerNewBusiness } from '../db/actions';
+import { generateKasirAuthPin, generateOutletCode, registerNewBusiness } from '../db/actions';
 import {
   getLatestAndroidDownloadInfo,
   pullAllFromSupabase,
@@ -189,6 +189,7 @@ export const WebLoginPage: React.FC<WebLoginPageProps> = ({ onLoginSuccess }) =>
     setLoading(true);
     try {
       const preparedOutletId = generateOutletCode(regNamaUsaha.trim());
+      const preparedKasirAuthPin = generateKasirAuthPin(regPin.trim() ? [regPin.trim()] : []);
       const verifyRes = await verifyRegisterOtpEmail({
         email: regEmail.trim().toLowerCase(),
         username: regUsername.trim(),
@@ -196,13 +197,14 @@ export const WebLoginPage: React.FC<WebLoginPageProps> = ({ onLoginSuccess }) =>
         namaOwner: regNamaOwner.trim(),
         namaUsaha: regNamaUsaha.trim(),
         outletId: preparedOutletId,
+        kasirAuthPin: preparedKasirAuthPin,
       });
       if (!verifyRes.success || !verifyRes.verified) {
         setError(verifyRes.error || 'Kode verifikasi salah atau kedaluwarsa.');
         return;
       }
 
-      const { owner, outletId } = await registerNewBusiness({
+      const { owner, outletId, kasirAuthPin } = await registerNewBusiness({
         namaUsaha: regNamaUsaha,
         alamatUsaha: regAlamat,
         namaOwner: regNamaOwner,
@@ -213,6 +215,7 @@ export const WebLoginPage: React.FC<WebLoginPageProps> = ({ onLoginSuccess }) =>
         pin: regPin,
         includeSampleData: false,
         customOutletId: preparedOutletId,
+        customKasirAuthPin: preparedKasirAuthPin,
       });
 
       if (!verifyRes.welcomeEmailSent) {
@@ -222,6 +225,7 @@ export const WebLoginPage: React.FC<WebLoginPageProps> = ({ onLoginSuccess }) =>
           namaUsaha: regNamaUsaha.trim(),
           username: regUsername.trim(),
           outletId,
+          kasirAuthPin,
         }).catch(() => {});
       }
 

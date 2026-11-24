@@ -1,6 +1,6 @@
 import { v4 as uuidv4 } from 'uuid';
 import { db } from '../db/database';
-import { generateOutletCode } from '../db/actions';
+import { generateKasirAuthPin, generateOutletCode } from '../db/actions';
 import { getSupabaseClient, pullAllFromSupabase } from './syncService';
 import type { AppSettings, BranchInfo, User } from '../types/models';
 
@@ -119,6 +119,9 @@ export async function createNewBranch(params: {
     const client = getSupabaseClient(params.currentSettings);
     const nowIso = new Date().toISOString();
     const newOutletId = generateOutletCode(`${params.namaUsaha} ${params.namaCabang}`);
+    const newKasirAuthPin = generateKasirAuthPin(
+      params.owner.pin ? [params.owner.pin.trim()] : []
+    );
     const ownerEmail = (
       params.owner.email ||
       params.currentSettings.ownerEmail ||
@@ -155,6 +158,7 @@ export async function createNewBranch(params: {
         ambang_mepet_bep_persen: params.currentSettings.ambangMepetBepPersen ?? 10,
         default_kasir_discount: params.currentSettings.defaultKasirDiscount ?? false,
         default_kasir_record_expense: params.currentSettings.defaultKasirRecordExpense ?? true,
+        kasir_auth_pin: newKasirAuthPin,
         updated_at: nowIso,
       },
       { onConflict: 'outlet_id' }

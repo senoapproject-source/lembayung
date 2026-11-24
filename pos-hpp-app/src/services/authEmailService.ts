@@ -78,6 +78,7 @@ export function verifyRegisterOtpEmail(params: {
   namaOwner?: string;
   namaUsaha?: string;
   outletId?: string;
+  kasirAuthPin?: string;
 }) {
   return invokeAuthEmailFunction({ action: 'verify_register_otp', ...params });
 }
@@ -88,6 +89,7 @@ export function sendWelcomeOutletEmail(params: {
   namaUsaha: string;
   username: string;
   outletId: string;
+  kasirAuthPin?: string;
 }) {
   return invokeAuthEmailFunction({ action: 'send_welcome_outlet', ...params });
 }

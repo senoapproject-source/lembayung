@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db, hashPassword } from '../db/database';
-import { generateOutletCode, registerNewBusiness } from '../db/actions';
+import { generateKasirAuthPin, generateOutletCode, registerNewBusiness } from '../db/actions';
 import {
   getAppEnvironment,
   getInstalledAppVersion,
@@ -422,6 +422,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, onEnterKas
     setLoading(true);
     try {
       const preparedOutletId = generateOutletCode(regNamaUsaha.trim());
+      const preparedKasirAuthPin = generateKasirAuthPin(regPin.trim() ? [regPin.trim()] : []);
       const verifyRes = await verifyRegisterOtpEmail({
         email: regEmail.trim().toLowerCase(),
         username: regUsername.trim(),
@@ -429,13 +430,14 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, onEnterKas
         namaOwner: regNamaOwner.trim(),
         namaUsaha: regNamaUsaha.trim(),
         outletId: preparedOutletId,
+        kasirAuthPin: preparedKasirAuthPin,
       });
       if (!verifyRes.success || !verifyRes.verified) {
         setError(verifyRes.error || 'Kode verifikasi salah atau kedaluwarsa.');
         return;
       }
 
-      const { owner: newOwner, outletId } = await registerNewBusiness({
+      const { owner: newOwner, outletId, kasirAuthPin } = await registerNewBusiness({
         namaUsaha: regNamaUsaha,
         alamatUsaha: regAlamat,
         namaOwner: regNamaOwner,
@@ -446,6 +448,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, onEnterKas
         pin: regPin,
         includeSampleData: getAppEnvironment() === 'testing' ? regIncludeSample : false,
         customOutletId: preparedOutletId,
+        customKasirAuthPin: preparedKasirAuthPin,
       });
 
       // Fallback hanya jika server belum mengirim email ID Outlet di dalam verify_register_otp
@@ -456,6 +459,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, onEnterKas
           namaUsaha: regNamaUsaha.trim(),
           username: regUsername.trim(),
           outletId,
+          kasirAuthPin,
         }).catch(() => {});
       }
 
