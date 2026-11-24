@@ -30,6 +30,8 @@ import {
 import { PublicReceiptView } from './components/PublicReceiptView';
 import { WebLoginPage } from './web/WebLoginPage';
 import { WebDashboardShell } from './web/WebDashboardShell';
+import { WebBranchesTeamPage } from './web/WebBranchesTeamPage';
+import { fetchOwnerBranches, switchActiveBranch } from './services/branchService';
 import { CuaninLogo } from './components/CuaninLogo';
 import { LembayungSplash } from './components/LembayungSplash';
 import { AttendanceKioskModal } from './components/AttendanceKioskModal';
@@ -37,7 +39,7 @@ import { KasirStandbyScreen } from './components/KasirStandbyScreen';
 import { UpdatePromptModal } from './components/UpdatePromptModal';
 import { MAX_OPEN_ATTENDANCE_HOURS } from './services/attendanceService';
 import { CloseShiftModal, OpenShiftScreen } from './components/CashierShiftModals';
-import type { User } from './types/models';
+import type { BranchInfo, User } from './types/models';
 import { LoginPage, REMEMBERED_USER_KEY } from './pages/LoginPage';
 import { PosPage } from './pages/PosPage';
 import { RecipesMenuPage } from './pages/RecipesMenuPage';
@@ -51,6 +53,7 @@ import { SettingsPage } from './pages/SettingsPage';
 import {
   BarChart3,
   BookOpen,
+  Building2,
   Clock,
   LogOut,
   Moon,
@@ -74,6 +77,7 @@ type ActiveView =
   | 'riwayat'
   | 'target'
   | 'absensi'
+  | 'cabang'
   | 'pengaturan';
 
 const SESSION_KEY = 'pos_hpp_active_user_id';
@@ -103,6 +107,8 @@ export function App() {
   const [backExitToast, setBackExitToast] = useState<boolean>(false);
   const [showCloseShiftModal, setShowCloseShiftModal] = useState<boolean>(false);
   const [showAttendanceKiosk, setShowAttendanceKiosk] = useState<boolean>(false);
+  const [ownerBranches, setOwnerBranches] = useState<BranchInfo[]>([]);
+  const [switchingBranch, setSwitchingBranch] = useState<boolean>(false);
   const [kasirModeActive, setKasirModeActive] = useState<boolean>(
     () => localStorage.getItem(KASIR_MODE_KEY) === '1'
   );
@@ -428,6 +434,36 @@ export function App() {
     }
   }, [currentUser?.id]);
 
+  // Muat daftar cabang milik Owner di Aplikasi Android agar Owner bisa pantau & pindah cabang langsung dari HP
+  useEffect(() => {
+    if (isWebPortal || !currentUser || currentUser.role !== 'owner') {
+      setOwnerBranches([]);
+      return;
+    }
+    fetchOwnerBranches(currentUser)
+      .then((list) => setOwnerBranches(list))
+      .catch(() => {});
+  }, [isWebPortal, currentUser?.id, currentUser?.role, settings?.outletId, isOnline]);
+
+  const handleNativeBranchSwitch = async (targetOutletId: string) => {
+    const cleanTarget = targetOutletId.trim().toUpperCase();
+    const currentOid = (settings?.outletId || '').trim().toUpperCase();
+    if (!cleanTarget || cleanTarget === currentOid) return;
+    if (!navigator.onLine) {
+      alert('Pindah cabang memerlukan koneksi internet.');
+      return;
+    }
+    setSwitchingBranch(true);
+    try {
+      const res = await switchActiveBranch(cleanTarget);
+      if (!res.success) {
+        alert(res.message);
+      }
+    } finally {
+      setSwitchingBranch(false);
+    }
+  };
+
   useEffect(() => {
     const queryToken = new URLSearchParams(window.location.search).get('s');
     if (queryToken) {
@@ -614,6 +650,7 @@ export function App() {
     safeView === 'riwayat' ||
     safeView === 'target' ||
     safeView === 'absensi' ||
+    safeView === 'cabang' ||
     safeView === 'pengaturan';
 
   const syncStatusBadge = isOnline ? (
@@ -666,6 +703,27 @@ export function App() {
               </div>
             </div>
           </div>
+
+          {/* Branch Switcher di Sidebar Tablet (Khusus Owner > 1 Cabang) */}
+          {isOwner && ownerBranches.length > 1 && (
+            <div className="bg-[#faf9f5] border border-[#e2e0d8] rounded-xl p-2 flex flex-col gap-1">
+              <div className="text-[10px] font-bold uppercase tracking-wider text-[#6b6a68]">
+                Cabang Aktif
+              </div>
+              <select
+                value={(settings?.outletId || '').trim().toUpperCase()}
+                disabled={switchingBranch}
+                onChange={(e) => handleNativeBranchSwitch(e.target.value)}
+                className="w-full h-8 rounded-lg border border-[#d6d3c8] bg-white px-2 text-xs font-semibold text-[#1f1e1d] focus:outline-none focus:border-[#1F7A5A]"
+              >
+                {ownerBranches.map((b) => (
+                  <option key={b.outletId} value={b.outletId}>
+                    {b.namaCabang} ({b.outletId}) {b.isStoreOpen ? '• Buka' : '• Tutup'}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
 
           {/* Menu Utama Sidebar */}
           <nav className="flex flex-col gap-1">
@@ -733,12 +791,20 @@ export function App() {
               />
             )}
             {isOwner && (
-              <SidebarItem
-                active={safeView === 'pengaturan'}
-                onClick={() => setActiveView('pengaturan')}
-                icon={<Settings size={17} />}
-                label="Pengaturan"
-              />
+              <>
+                <SidebarItem
+                  active={safeView === 'cabang'}
+                  onClick={() => setActiveView('cabang')}
+                  icon={<Building2 size={17} />}
+                  label="Manajemen Cabang"
+                />
+                <SidebarItem
+                  active={safeView === 'pengaturan'}
+                  onClick={() => setActiveView('pengaturan')}
+                  icon={<Settings size={17} />}
+                  label="Pengaturan"
+                />
+              </>
             )}
           </nav>
         </div>
@@ -857,6 +923,20 @@ export function App() {
           {isOwner && (
             <button
               type="button"
+              onClick={() => setActiveView('cabang')}
+              title="Manajemen Cabang"
+              className={`p-1.5 rounded-md transition ${
+                safeView === 'cabang'
+                  ? 'bg-[#e4f1ea] text-[#1F7A5A]'
+                  : 'text-[#4a4947] hover:bg-[#ece9e0]'
+              }`}
+            >
+              <Building2 size={15} />
+            </button>
+          )}
+          {isOwner && (
+            <button
+              type="button"
               onClick={() => setActiveView('pengaturan')}
               title="Pengaturan"
               className={`p-1.5 rounded-md transition ${
@@ -881,10 +961,37 @@ export function App() {
         </div>
       </div>
 
+      {/* Bar Pindah Cabang Cepat di HP (Khusus Owner yang memiliki > 1 cabang) */}
+      {isOwner && ownerBranches.length > 1 && (
+        <div className="md:hidden bg-[#faf9f5] border-b border-[#e2e0d8] px-3 py-1.5 flex items-center justify-between gap-2 shrink-0">
+          <div className="flex items-center gap-1.5 text-[11px] font-semibold text-[#4a4947] shrink-0">
+            <Building2 size={13} className="text-[#1F7A5A]" />
+            <span>Cabang:</span>
+          </div>
+          <select
+            value={(settings?.outletId || '').trim().toUpperCase()}
+            disabled={switchingBranch}
+            onChange={(e) => handleNativeBranchSwitch(e.target.value)}
+            className="flex-1 min-w-0 h-7 rounded-lg border border-[#d6d3c8] bg-white px-2 text-xs font-semibold text-[#1f1e1d] focus:outline-none focus:border-[#1F7A5A]"
+          >
+            {ownerBranches.map((b) => (
+              <option key={b.outletId} value={b.outletId}>
+                {b.namaCabang} ({b.outletId}) {b.isStoreOpen ? '• Buka' : '• Tutup'}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+
       {/* ====================================================================
           AREA KONTEN UTAMA (FULL-WIDTH RESPONSIVE DI TABLET & HP)
          ==================================================================== */}
       <main className="flex-1 overflow-y-auto min-w-0">
+        {switchingBranch && (
+          <div className="bg-[#e4f1ea] text-[#1F7A5A] text-xs font-semibold px-4 py-2 text-center border-b border-[#c5dfd1]">
+            Memuat data cabang...
+          </div>
+        )}
         {safeView === 'kasir' && (
           <PosPage user={currentUser} onOpenHistory={() => setActiveView('riwayat')} />
         )}
@@ -917,6 +1024,24 @@ export function App() {
         )}
         {safeView === 'absensi' && isManagerOrOwner && (
           <AttendanceReportPage user={currentUser} onBack={() => setActiveView('laporan')} />
+        )}
+        {safeView === 'cabang' && isOwner && (
+          <div className="p-3.5 sm:p-5 max-w-[1200px] mx-auto">
+            <WebBranchesTeamPage
+              user={currentUser}
+              settings={settings}
+              branches={ownerBranches}
+              activeOutletId={(settings?.outletId || '').trim().toUpperCase()}
+              section="branches"
+              onBranchCreated={(b) => setOwnerBranches((prev) => [...prev, b])}
+              onBranchUpdated={(updated) =>
+                setOwnerBranches((prev) =>
+                  prev.map((b) => (b.outletId === updated.outletId ? { ...b, ...updated } : b))
+                )
+              }
+              onSelectBranch={handleNativeBranchSwitch}
+            />
+          </div>
         )}
         {safeView === 'pengaturan' && isOwner && (
           <SettingsPage
@@ -955,6 +1080,33 @@ export function App() {
             />
             <TabButton
               active={isLaporanGroup}
+              onClick={() => setActiveView('laporan')}
+              icon={<BarChart3 size={18} />}
+              label="Laporan"
+            />
+          </>
+        ) : isManagerOrOwner ? (
+          <>
+            <TabButton
+              active={safeView === 'kasir'}
+              onClick={() => setActiveView('kasir')}
+              icon={<ShoppingCart size={18} />}
+              label="Kasir"
+            />
+            <TabButton
+              active={safeView === 'riwayat'}
+              onClick={() => setActiveView('riwayat')}
+              icon={<Receipt size={18} />}
+              label="Riwayat"
+            />
+            <TabButton
+              active={safeView === 'absensi'}
+              onClick={() => setActiveView('absensi')}
+              icon={<Clock size={18} />}
+              label="Absensi"
+            />
+            <TabButton
+              active={safeView === 'laporan'}
               onClick={() => setActiveView('laporan')}
               icon={<BarChart3 size={18} />}
               label="Laporan"
