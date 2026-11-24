@@ -12,6 +12,7 @@ import { LembayungLogo } from '../components/CuaninLogo';
 import { WebOverviewPage } from './WebOverviewPage';
 import { WebSalesHistoryPage } from './WebSalesHistoryPage';
 import { WebBranchesTeamPage } from './WebBranchesTeamPage';
+import { WebAllBranchesModuleView, type AllBranchesModule } from './WebAllBranchesModuleView';
 import { RecipesMenuPage } from '../pages/RecipesMenuPage';
 import { IngredientsPage } from '../pages/IngredientsPage';
 import { ExpensesPage } from '../pages/ExpensesPage';
@@ -127,13 +128,14 @@ export const WebDashboardShell: React.FC<WebDashboardShellProps> = ({
       .catch(() => {});
   }, [isOwner, user.id, activeOutletId]);
 
-  const handleBranchSwitch = async (targetKey: string) => {
+  const handleBranchSwitch = async (targetKey: string, nextTab?: WebTab) => {
     if (targetKey === 'ALL') {
       setSelectedBranchKey('ALL');
-      setActiveTab('overview');
+      if (nextTab) setActiveTab(nextTab);
       return;
     }
     setSelectedBranchKey(targetKey);
+    if (nextTab) setActiveTab(nextTab);
     if (targetKey && targetKey !== activeOutletId) {
       setSwitchingBranch(true);
       try {
@@ -286,28 +288,19 @@ export const WebDashboardShell: React.FC<WebDashboardShellProps> = ({
             />
             <WebNavItem
               active={activeTab === 'sales'}
-              onClick={() => {
-                if (isAllBranchesMode) setSelectedBranchKey(activeOutletId);
-                setActiveTab('sales');
-              }}
+              onClick={() => setActiveTab('sales')}
               icon={<Receipt size={16} />}
               label="Penjualan & Riwayat"
             />
             <WebNavItem
               active={activeTab === 'expenses'}
-              onClick={() => {
-                if (isAllBranchesMode) setSelectedBranchKey(activeOutletId);
-                setActiveTab('expenses');
-              }}
+              onClick={() => setActiveTab('expenses')}
               icon={<Wallet size={16} />}
               label="Pemasukan & Pengeluaran"
             />
             <WebNavItem
               active={activeTab === 'target'}
-              onClick={() => {
-                if (isAllBranchesMode) setSelectedBranchKey(activeOutletId);
-                setActiveTab('target');
-              }}
+              onClick={() => setActiveTab('target')}
               icon={<Target size={16} />}
               label="Target & BEP"
             />
@@ -317,19 +310,13 @@ export const WebDashboardShell: React.FC<WebDashboardShellProps> = ({
             </div>
             <WebNavItem
               active={activeTab === 'recipes'}
-              onClick={() => {
-                if (isAllBranchesMode) setSelectedBranchKey(activeOutletId);
-                setActiveTab('recipes');
-              }}
+              onClick={() => setActiveTab('recipes')}
               icon={<BookOpen size={16} />}
               label="Menu & Kalkulator HPP"
             />
             <WebNavItem
               active={activeTab === 'ingredients'}
-              onClick={() => {
-                if (isAllBranchesMode) setSelectedBranchKey(activeOutletId);
-                setActiveTab('ingredients');
-              }}
+              onClick={() => setActiveTab('ingredients')}
               icon={<Package size={16} />}
               label="Bahan Baku & Pembelian"
             />
@@ -339,29 +326,20 @@ export const WebDashboardShell: React.FC<WebDashboardShellProps> = ({
             </div>
             <WebNavItem
               active={activeTab === 'attendance'}
-              onClick={() => {
-                if (isAllBranchesMode) setSelectedBranchKey(activeOutletId);
-                setActiveTab('attendance');
-              }}
+              onClick={() => setActiveTab('attendance')}
               icon={<Clock size={16} />}
               label="Absensi Tim"
             />
             <WebNavItem
               active={activeTab === 'team'}
-              onClick={() => {
-                if (isAllBranchesMode) setSelectedBranchKey(activeOutletId);
-                setActiveTab('team');
-              }}
+              onClick={() => setActiveTab('team')}
               icon={<Users size={16} />}
               label={isOwner ? 'Tim & Karyawan' : 'Tim Kasir'}
             />
             {isOwner && (
               <WebNavItem
                 active={activeTab === 'branches'}
-                onClick={() => {
-                  if (isAllBranchesMode) setSelectedBranchKey(activeOutletId);
-                  setActiveTab('branches');
-                }}
+                onClick={() => setActiveTab('branches')}
                 icon={<Building2 size={16} />}
                 label="Manajemen Cabang"
               />
@@ -369,10 +347,7 @@ export const WebDashboardShell: React.FC<WebDashboardShellProps> = ({
             {isOwner && (
               <WebNavItem
                 active={activeTab === 'settings'}
-                onClick={() => {
-                  if (isAllBranchesMode) setSelectedBranchKey(activeOutletId);
-                  setActiveTab('settings');
-                }}
+                onClick={() => setActiveTab('settings')}
                 icon={<Settings size={16} />}
                 label="Pengaturan Outlet"
               />
@@ -439,8 +414,10 @@ export const WebDashboardShell: React.FC<WebDashboardShellProps> = ({
           </div>
 
           <div className="flex flex-wrap items-center gap-2.5">
-            {/* Global Date Range Filter pada halaman Overview & Sales */}
-            {(activeTab === 'overview' || activeTab === 'sales') && (
+            {/* Global Date Range Filter pada halaman Overview, Sales, serta Expenses/Attendance di mode Semua Cabang */}
+            {(activeTab === 'overview' ||
+              activeTab === 'sales' ||
+              (isAllBranchesMode && (activeTab === 'expenses' || activeTab === 'attendance'))) && (
               <div className="flex items-center gap-1.5 bg-[#faf9f5] border border-[#e2e0d8] rounded-xl px-2.5 py-1.5 text-xs">
                 <Calendar size={14} className="text-[#1F7A5A]" />
                 {(['today', '7days', 'this_month', 'last_month'] as const).map((p) => (
@@ -541,34 +518,88 @@ export const WebDashboardShell: React.FC<WebDashboardShellProps> = ({
                 onNavigate={(t) => setActiveTab(t)}
               />
             )}
-            {activeTab === 'sales' && (
-              <WebSalesHistoryPage user={user} dateFrom={dateFrom} dateTo={dateTo} />
-            )}
-            {activeTab === 'expenses' && (
-              <div className="bg-white border border-[#e2e0d8] rounded-2xl overflow-hidden">
-                <ExpensesPage user={user} />
-              </div>
-            )}
-            {activeTab === 'recipes' && (
-              <div className="bg-white border border-[#e2e0d8] rounded-2xl overflow-hidden">
-                <RecipesMenuPage user={user} />
-              </div>
-            )}
-            {activeTab === 'ingredients' && (
-              <div className="bg-white border border-[#e2e0d8] rounded-2xl overflow-hidden">
-                <IngredientsPage user={user} />
-              </div>
-            )}
-            {activeTab === 'target' && (
-              <div className="bg-white border border-[#e2e0d8] rounded-2xl overflow-hidden">
-                <TargetBepPage />
-              </div>
-            )}
-            {activeTab === 'attendance' && (
-              <div className="bg-white border border-[#e2e0d8] rounded-2xl overflow-hidden">
-                <AttendanceReportPage user={user} />
-              </div>
-            )}
+            {activeTab === 'sales' &&
+              (isAllBranchesMode ? (
+                <WebAllBranchesModuleView
+                  module="sales"
+                  branches={branches}
+                  dateFrom={dateFrom}
+                  dateTo={dateTo}
+                  onOpenBranchModule={(oid, mod: AllBranchesModule) => handleBranchSwitch(oid, mod)}
+                />
+              ) : (
+                <WebSalesHistoryPage user={user} dateFrom={dateFrom} dateTo={dateTo} />
+              ))}
+            {activeTab === 'expenses' &&
+              (isAllBranchesMode ? (
+                <WebAllBranchesModuleView
+                  module="expenses"
+                  branches={branches}
+                  dateFrom={dateFrom}
+                  dateTo={dateTo}
+                  onOpenBranchModule={(oid, mod: AllBranchesModule) => handleBranchSwitch(oid, mod)}
+                />
+              ) : (
+                <div className="bg-white border border-[#e2e0d8] rounded-2xl overflow-hidden">
+                  <ExpensesPage user={user} />
+                </div>
+              ))}
+            {activeTab === 'recipes' &&
+              (isAllBranchesMode ? (
+                <WebAllBranchesModuleView
+                  module="recipes"
+                  branches={branches}
+                  dateFrom={dateFrom}
+                  dateTo={dateTo}
+                  onOpenBranchModule={(oid, mod: AllBranchesModule) => handleBranchSwitch(oid, mod)}
+                />
+              ) : (
+                <div className="bg-white border border-[#e2e0d8] rounded-2xl overflow-hidden">
+                  <RecipesMenuPage user={user} />
+                </div>
+              ))}
+            {activeTab === 'ingredients' &&
+              (isAllBranchesMode ? (
+                <WebAllBranchesModuleView
+                  module="ingredients"
+                  branches={branches}
+                  dateFrom={dateFrom}
+                  dateTo={dateTo}
+                  onOpenBranchModule={(oid, mod: AllBranchesModule) => handleBranchSwitch(oid, mod)}
+                />
+              ) : (
+                <div className="bg-white border border-[#e2e0d8] rounded-2xl overflow-hidden">
+                  <IngredientsPage user={user} />
+                </div>
+              ))}
+            {activeTab === 'target' &&
+              (isAllBranchesMode ? (
+                <WebAllBranchesModuleView
+                  module="target"
+                  branches={branches}
+                  dateFrom={dateFrom}
+                  dateTo={dateTo}
+                  onOpenBranchModule={(oid, mod: AllBranchesModule) => handleBranchSwitch(oid, mod)}
+                />
+              ) : (
+                <div className="bg-white border border-[#e2e0d8] rounded-2xl overflow-hidden">
+                  <TargetBepPage />
+                </div>
+              ))}
+            {activeTab === 'attendance' &&
+              (isAllBranchesMode ? (
+                <WebAllBranchesModuleView
+                  module="attendance"
+                  branches={branches}
+                  dateFrom={dateFrom}
+                  dateTo={dateTo}
+                  onOpenBranchModule={(oid, mod: AllBranchesModule) => handleBranchSwitch(oid, mod)}
+                />
+              ) : (
+                <div className="bg-white border border-[#e2e0d8] rounded-2xl overflow-hidden">
+                  <AttendanceReportPage user={user} />
+                </div>
+              ))}
             {activeTab === 'team' && (
               <WebBranchesTeamPage
                 user={user}
@@ -609,17 +640,27 @@ export const WebDashboardShell: React.FC<WebDashboardShellProps> = ({
                 onSelectBranch={handleBranchSwitch}
               />
             )}
-            {activeTab === 'settings' && isOwner && (
-              <div className="bg-white border border-[#e2e0d8] rounded-2xl overflow-hidden">
-                <SettingsPage
-                  user={user}
-                  darkMode={darkMode}
-                  onToggleDarkMode={onToggleDarkMode}
-                  onBack={() => setActiveTab('overview')}
-                  onLogout={onLogout}
+            {activeTab === 'settings' &&
+              isOwner &&
+              (isAllBranchesMode ? (
+                <WebAllBranchesModuleView
+                  module="settings"
+                  branches={branches}
+                  dateFrom={dateFrom}
+                  dateTo={dateTo}
+                  onOpenBranchModule={(oid, mod: AllBranchesModule) => handleBranchSwitch(oid, mod)}
                 />
-              </div>
-            )}
+              ) : (
+                <div className="bg-white border border-[#e2e0d8] rounded-2xl overflow-hidden">
+                  <SettingsPage
+                    user={user}
+                    darkMode={darkMode}
+                    onToggleDarkMode={onToggleDarkMode}
+                    onBack={() => setActiveTab('overview')}
+                    onLogout={onLogout}
+                  />
+                </div>
+              ))}
           </main>
         )}
       </div>

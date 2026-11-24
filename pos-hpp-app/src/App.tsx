@@ -811,13 +811,15 @@ export function App() {
 
         {/* Footer Sidebar (Status Cloud, Absen, Tutup Kasir, User, Dark Mode, Kunci PIN) */}
         <div className="p-3 border-t border-[#e2e0d8] flex flex-col gap-2 bg-[#faf9f5]">
-          <button
-            type="button"
-            onClick={() => setShowAttendanceKiosk(true)}
-            className="w-full h-9 rounded-xl bg-[#e4f1ea] hover:bg-[#d5eadf] text-[#1F7A5A] font-semibold text-xs flex items-center justify-center gap-1.5 transition"
-          >
-            <Clock size={13} /> Absen Karyawan
-          </button>
+          {!isOwner && (
+            <button
+              type="button"
+              onClick={() => setShowAttendanceKiosk(true)}
+              className="w-full h-9 rounded-xl bg-[#e4f1ea] hover:bg-[#d5eadf] text-[#1F7A5A] font-semibold text-xs flex items-center justify-center gap-1.5 transition"
+            >
+              <Clock size={13} /> Absen Karyawan
+            </button>
+          )}
           {!isOwner && activeCashierShift && (
             <button
               type="button"
@@ -904,14 +906,16 @@ export function App() {
               {currentUser.nama}
             </span>
           )}
-          <button
-            type="button"
-            onClick={() => setShowAttendanceKiosk(true)}
-            title="Absen Masuk / Pulang Karyawan"
-            className="px-2 py-1 rounded-full bg-[#e4f1ea] text-[#1F7A5A] font-semibold text-[11px] flex items-center gap-1 shrink-0 whitespace-nowrap"
-          >
-            <Clock size={12} /> Absen
-          </button>
+          {!isOwner && (
+            <button
+              type="button"
+              onClick={() => setShowAttendanceKiosk(true)}
+              title="Absen Masuk / Pulang Karyawan"
+              className="px-2 py-1 rounded-full bg-[#e4f1ea] text-[#1F7A5A] font-semibold text-[11px] flex items-center gap-1 shrink-0 whitespace-nowrap"
+            >
+              <Clock size={12} /> Absen
+            </button>
+          )}
           <button
             type="button"
             onClick={toggleDarkMode}
