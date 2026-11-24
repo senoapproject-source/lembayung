@@ -113,6 +113,24 @@ export function findDuplicatePinOwner(
   );
 }
 
+/**
+ * Kembalikan himpunan PIN yang terlanjur dipakai oleh >= 2 akun aktif (khusus outlet lama).
+ */
+export function getDuplicatePinSet(users: User[]): Set<string> {
+  const counts = new Map<string, number>();
+  for (const u of users) {
+    if (!u.active) continue;
+    const p = String(u.pin || '').trim();
+    if (!p) continue;
+    counts.set(p, (counts.get(p) ?? 0) + 1);
+  }
+  const dups = new Set<string>();
+  for (const [p, cnt] of counts.entries()) {
+    if (cnt > 1) dups.add(p);
+  }
+  return dups;
+}
+
 function parseHmToMinutes(hm: string): number {
   const [hStr, mStr] = hm.split(':');
   const h = parseInt(hStr || '0', 10) || 0;

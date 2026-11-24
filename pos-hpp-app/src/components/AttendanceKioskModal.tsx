@@ -50,6 +50,7 @@ export const AttendanceKioskModal: React.FC<AttendanceKioskModalProps> = ({
     preselectedUser ? 'selfie' : 'pin'
   );
   const [pinInput, setPinInput] = useState('');
+  const [duplicateMatches, setDuplicateMatches] = useState<User[]>([]);
   const [matchedUser, setMatchedUser] = useState<User | null>(preselectedUser ?? null);
   const [activeAtt, setActiveAtt] = useState<AttendanceRecord | null>(null);
   const [forgotNotice, setForgotNotice] = useState<AttendanceRecord | null>(null);
@@ -144,6 +145,20 @@ export const AttendanceKioskModal: React.FC<AttendanceKioskModalProps> = ({
     };
   }, [step, capturedPhoto]);
 
+  const proceedToSelfieForUser = async (found: User) => {
+    setDuplicateMatches([]);
+    const now = new Date();
+    setNowClock(now);
+    const { activeAttendance, autoClosedForgotRecord } =
+      await findActiveAttendanceForUser(found.id, now);
+    setMatchedUser(found);
+    setActiveAtt(activeAttendance);
+    setForgotNotice(autoClosedForgotRecord);
+    setSelectedShift(detectClosestWorkShift(now, workShifts));
+    setCapturedPhoto('');
+    setStep('selfie');
+  };
+
   const handlePinDigit = async (digit: string) => {
     if (pinInput.length >= 6) return;
     const next = pinInput + digit;
@@ -151,23 +166,18 @@ export const AttendanceKioskModal: React.FC<AttendanceKioskModalProps> = ({
     setError('');
 
     if (next.length === 6) {
-      const found = activeUsers.find((u) => String(u.pin || '').trim() === next);
-      if (!found) {
+      const matches = activeUsers.filter((u) => String(u.pin || '').trim() === next);
+      if (matches.length === 0) {
         setError('PIN 6 angka tidak ditemukan. Coba periksa kembali.');
         setTimeout(() => setPinInput(''), 350);
         return;
       }
-
-      const now = new Date();
-      setNowClock(now);
-      const { activeAttendance, autoClosedForgotRecord } =
-        await findActiveAttendanceForUser(found.id, now);
-      setMatchedUser(found);
-      setActiveAtt(activeAttendance);
-      setForgotNotice(autoClosedForgotRecord);
-      setSelectedShift(detectClosestWorkShift(now, workShifts));
-      setCapturedPhoto('');
-      setStep('selfie');
+      if (matches.length > 1) {
+        setDuplicateMatches(matches);
+        setPinInput('');
+        return;
+      }
+      await proceedToSelfieForUser(matches[0]);
     }
   };
 
@@ -282,7 +292,38 @@ export const AttendanceKioskModal: React.FC<AttendanceKioskModalProps> = ({
         {/* ============================================================
             STEP 1: INPUT PIN 6 ANGKA (TANPA PILIH NAMA)
            ============================================================ */}
-        {step === 'pin' && (
+        {step === 'pin' && duplicateMatches.length > 1 && (
+          <div className="flex flex-col gap-2.5 py-1">
+            <div className="text-center">
+              <div className="text-sm font-bold text-[#1f1e1d]">Pilih Nama Anda</div>
+              <div className="text-[11px] text-[#7a4300] mt-0.5">
+                PIN ini masih dipakai lebih dari 1 akun lama.
+              </div>
+            </div>
+            <div className="flex flex-col gap-2">
+              {duplicateMatches.map((u) => (
+                <button
+                  key={u.id}
+                  type="button"
+                  onClick={() => proceedToSelfieForUser(u)}
+                  className="h-11 px-4 rounded-xl border border-[#d6d3c8] bg-[#faf9f5] hover:bg-[#e4f1ea] hover:border-[#1F7A5A] text-sm font-semibold text-[#1f1e1d] flex items-center justify-between"
+                >
+                  <span>{u.nama}</span>
+                  <span className="text-[11px] text-[#6b6a68] capitalize">{u.role}</span>
+                </button>
+              ))}
+            </div>
+            <button
+              type="button"
+              onClick={() => setDuplicateMatches([])}
+              className="text-xs font-medium text-[#6b6a68] text-center pt-1"
+            >
+              ‹ Kembali ke Numpad
+            </button>
+          </div>
+        )}
+
+        {step === 'pin' && duplicateMatches.length <= 1 && (
           <div className="flex flex-col items-center gap-4 py-1">
             <div className="text-center">
               <div className="text-sm font-semibold text-[#1f1e1d]">

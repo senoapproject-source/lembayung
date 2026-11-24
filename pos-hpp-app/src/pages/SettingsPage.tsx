@@ -25,7 +25,11 @@ import {
   setNotificationsEnabled,
 } from '../services/notificationService';
 import { validatePassword, validatePin } from '../lib/validation';
-import { findDuplicatePinOwner, generateUniqueSixDigitPin } from '../services/attendanceService';
+import {
+  findDuplicatePinOwner,
+  generateUniqueSixDigitPin,
+  getDuplicatePinSet,
+} from '../services/attendanceService';
 import { compressLogoFileToDataUrl } from '../lib/receipt';
 import { CustomSelect } from '../components/CustomSelect';
 import type { AppSettings, RoundingStep, User } from '../types/models';
@@ -786,60 +790,87 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
             </button>
           </div>
           <div className="bg-white border border-[#e2e0d8] rounded-xl overflow-hidden divide-y divide-[#eeece5]">
-            {users.map((u) => (
-              <div key={u.id} className="px-3.5 py-3 flex justify-between items-center gap-3">
-                <div>
-                  <div className={`font-semibold text-sm flex items-center gap-1.5 ${!u.active ? 'text-[#6b6a68]' : ''}`}>
-                    {u.nama}
-                    {u.role === 'owner' && (
-                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-[#1F7A5A] text-white">
-                        Owner
-                      </span>
-                    )}
-                    {u.role === 'manager' && (
-                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-[#e0e7ff] text-[#3730a3]">
-                        Manager
-                      </span>
-                    )}
-                    {u.pin && (
-                      <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-[#e4f1ea] text-[#1F7A5A]">
-                        PIN
-                      </span>
-                    )}
+            {(() => {
+              const dupPins = getDuplicatePinSet(users);
+              return users.map((u) => {
+                const hasDupPin = Boolean(u.active && u.pin && dupPins.has(u.pin.trim()));
+                return (
+                  <div key={u.id} className="px-3.5 py-3 flex justify-between items-center gap-3">
+                    <div className="min-w-0">
+                      <div className={`font-semibold text-sm flex items-center gap-1.5 flex-wrap ${!u.active ? 'text-[#6b6a68]' : ''}`}>
+                        {u.nama}
+                        {u.role === 'owner' && (
+                          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-[#1F7A5A] text-white">
+                            Owner
+                          </span>
+                        )}
+                        {u.role === 'manager' && (
+                          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-[#e0e7ff] text-[#3730a3]">
+                            Manager
+                          </span>
+                        )}
+                        {u.pin && !hasDupPin && (
+                          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-[#e4f1ea] text-[#1F7A5A]">
+                            PIN
+                          </span>
+                        )}
+                        {hasDupPin && (
+                          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-[#fbeed9] text-[#7a4300]">
+                            PIN Duplikat
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-xs text-[#6b6a68]">
+                        {u.role === 'owner'
+                          ? 'Akses penuh seluruh cabang'
+                          : u.role === 'manager'
+                          ? `Manager · akses laporan, void, resep & tim kasir${u.email ? ` · ${u.email}` : ''}`
+                          : !u.active
+                          ? 'Kasir · nonaktif, riwayat tetap utuh'
+                          : `Kasir · diskon ${u.canDiscount ? 'aktif' : 'nonaktif'} · pembelian ${
+                              u.canRecordExpense ? 'aktif' : 'nonaktif'
+                            }`}
+                      </div>
+                      {hasDupPin && (
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            const newPin = generateUniqueSixDigitPin(users);
+                            const nowIso = new Date().toISOString();
+                            await db.users.update(u.id, { pin: newPin, updatedAt: nowIso });
+                            await addAuditLog(user, 'UBAH_PIN', u.nama, 'Acak PIN unik baru (atasi duplikat)');
+                            await enqueueSync('master', u.id, 'upsert', { id: u.id, pin: newPin, isUser: true });
+                            notify(`PIN baru untuk ${u.nama}: ${newPin}`);
+                          }}
+                          className="mt-1.5 text-[11px] font-semibold text-[#7a4300] bg-[#fbeed9] hover:bg-[#f6dfb9] px-2.5 py-1 rounded-lg"
+                        >
+                          Acak PIN Baru
+                        </button>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2.5 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => openEditUserModal(u)}
+                        className="text-[13px] font-semibold text-[#1F7A5A]"
+                      >
+                        Atur
+                      </button>
+                      {canDeleteUser(u) && (
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteUser(u)}
+                          title={`Hapus ${u.nama}`}
+                          className="p-1.5 rounded-lg text-[#9b1c12] hover:bg-[#fbe4e1] transition"
+                        >
+                          <Trash2 size={15} />
+                        </button>
+                      )}
+                    </div>
                   </div>
-                  <div className="text-xs text-[#6b6a68]">
-                    {u.role === 'owner'
-                      ? 'Akses penuh seluruh cabang'
-                      : u.role === 'manager'
-                      ? `Manager · akses laporan, void, resep & tim kasir${u.email ? ` · ${u.email}` : ''}`
-                      : !u.active
-                      ? 'Kasir · nonaktif, riwayat tetap utuh'
-                      : `Kasir · diskon ${u.canDiscount ? 'aktif' : 'nonaktif'} · pembelian ${
-                          u.canRecordExpense ? 'aktif' : 'nonaktif'
-                        }`}
-                  </div>
-                </div>
-                <div className="flex items-center gap-2.5 shrink-0">
-                  <button
-                    type="button"
-                    onClick={() => openEditUserModal(u)}
-                    className="text-[13px] font-semibold text-[#1F7A5A]"
-                  >
-                    Atur
-                  </button>
-                  {canDeleteUser(u) && (
-                    <button
-                      type="button"
-                      onClick={() => handleDeleteUser(u)}
-                      title={`Hapus ${u.nama}`}
-                      className="p-1.5 rounded-lg text-[#9b1c12] hover:bg-[#fbe4e1] transition"
-                    >
-                      <Trash2 size={15} />
-                    </button>
-                  )}
-                </div>
-              </div>
-            ))}
+                );
+              });
+            })()}
           </div>
         </>
       )}

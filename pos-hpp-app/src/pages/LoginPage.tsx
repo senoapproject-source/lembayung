@@ -64,6 +64,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
   const [newPinSetup, setNewPinSetup] = useState('');
   const [showAttendanceKiosk, setShowAttendanceKiosk] = useState(false);
   const [pendingPrivilegedUser, setPendingPrivilegedUser] = useState<User | null>(null);
+  const [duplicatePinMatches, setDuplicatePinMatches] = useState<User[]>([]);
   const [privilegedPassInput, setPrivilegedPassInput] = useState('');
   const [showPrivilegedPass, setShowPrivilegedPass] = useState(false);
 
@@ -156,6 +157,19 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
   // ============================================================================
   const anyUserHasPin = activeUsers.some((u) => Boolean(u.pin));
 
+  const proceedWithMatchedUser = (matched: User) => {
+    setDuplicatePinMatches([]);
+    if (matched.role === 'owner' || matched.role === 'manager') {
+      // Owner & Manager wajib konfirmasi kata sandi (100% offline) agar aman walau PIN sempat diintip
+      setPendingPrivilegedUser(matched);
+      setPrivilegedPassInput('');
+      setShowPrivilegedPass(false);
+      setPinInput('');
+      return;
+    }
+    completeLogin(matched);
+  };
+
   const handleDigitPress = (digit: string) => {
     setError('');
     if (pinInput.length >= 6) return;
@@ -163,23 +177,19 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
     setPinInput(nextPin);
 
     if (nextPin.length === 6) {
-      const matched = activeUsers.find((u) => String(u.pin || '').trim() === nextPin);
-      if (!matched) {
+      const matches = activeUsers.filter((u) => String(u.pin || '').trim() === nextPin);
+      if (matches.length === 0) {
         setError('PIN tidak dikenali. Periksa kembali 6 angka PIN Anda.');
         setTimeout(() => setPinInput(''), 350);
         return;
       }
-
-      if (matched.role === 'owner' || matched.role === 'manager') {
-        // Owner & Manager wajib konfirmasi kata sandi (100% offline) agar aman walau PIN sempat diintip
-        setPendingPrivilegedUser(matched);
-        setPrivilegedPassInput('');
-        setShowPrivilegedPass(false);
+      if (matches.length > 1) {
+        // Fallback aman khusus outlet lama yang masih punya PIN kembar
+        setDuplicatePinMatches(matches);
         setPinInput('');
         return;
       }
-
-      completeLogin(matched);
+      proceedWithMatchedUser(matches[0]);
     }
   };
 
@@ -578,7 +588,38 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
            ==================================================================== */}
         {screenMode === 'pin_lock' && rememberedUser && (
           <div className="bg-white border border-[#e2e0d8] rounded-2xl p-6 flex flex-col items-center gap-4 shadow-xs">
-            {pendingPrivilegedUser ? (
+            {duplicatePinMatches.length > 1 ? (
+              <div className="w-full flex flex-col gap-2.5">
+                <div className="text-center">
+                  <div className="text-sm font-bold text-[#1f1e1d]">Pilih Nama Anda</div>
+                  <div className="text-[11px] text-[#7a4300] mt-0.5">
+                    PIN ini masih dipakai lebih dari 1 akun lama. Disarankan ubah PIN unik di Pengaturan.
+                  </div>
+                </div>
+                <div className="flex flex-col gap-2">
+                  {duplicatePinMatches.map((u) => (
+                    <button
+                      key={u.id}
+                      type="button"
+                      onClick={() => proceedWithMatchedUser(u)}
+                      className="h-11 px-4 rounded-xl border border-[#d6d3c8] bg-[#faf9f5] hover:bg-[#e4f1ea] hover:border-[#1F7A5A] text-sm font-semibold text-[#1f1e1d] flex items-center justify-between"
+                    >
+                      <span>{u.nama}</span>
+                      <span className="text-[11px] font-medium text-[#6b6a68] capitalize">
+                        {u.role}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setDuplicatePinMatches([])}
+                  className="text-xs font-medium text-[#6b6a68] text-center pt-1"
+                >
+                  ‹ Kembali ke Numpad
+                </button>
+              </div>
+            ) : pendingPrivilegedUser ? (
               <form
                 onSubmit={handlePrivilegedPasswordSubmit}
                 className="w-full flex flex-col gap-3"
