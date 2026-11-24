@@ -25,18 +25,18 @@ import {
   validatePin,
 } from '../lib/validation';
 import { CuaninLogo } from '../components/CuaninLogo';
-import { AttendanceKioskModal } from '../components/AttendanceKioskModal';
 import { PasswordInputWithRules } from '../components/PasswordInputWithRules';
 import type { User } from '../types/models';
-import { Clock, Delete, Eye, EyeOff, KeyRound, LogIn, Mail, ShieldCheck, UserPlus } from 'lucide-react';
+import { Delete, Eye, EyeOff, KeyRound, LogIn, Mail, ShieldCheck, UserPlus } from 'lucide-react';
 
 export const REMEMBERED_USER_KEY = 'pos_hpp_remembered_user_id';
 
 interface LoginPageProps {
   onLoginSuccess: (user: User) => void;
+  onEnterKasirMode?: () => void;
 }
 
-export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
+export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, onEnterKasirMode }) => {
   const users = useLiveQuery(() => db.users.toArray());
   const settings = useLiveQuery(() => db.settings.get('global'));
 
@@ -62,7 +62,6 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
   // State PIN Lock
   const [pinInput, setPinInput] = useState('');
   const [newPinSetup, setNewPinSetup] = useState('');
-  const [showAttendanceKiosk, setShowAttendanceKiosk] = useState(false);
   const [pendingPrivilegedUser, setPendingPrivilegedUser] = useState<User | null>(null);
   const [duplicatePinMatches, setDuplicatePinMatches] = useState<User[]>([]);
   const [privilegedPassInput, setPrivilegedPassInput] = useState('');
@@ -177,19 +176,44 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
     setPinInput(nextPin);
 
     if (nextPin.length === 6) {
-      const matches = activeUsers.filter((u) => String(u.pin || '').trim() === nextPin);
-      if (matches.length === 0) {
-        setError('PIN tidak dikenali. Periksa kembali 6 angka PIN Anda.');
-        setTimeout(() => setPinInput(''), 350);
+      // 1. Cek apakah ini PIN Otorisasi Mode Kasir
+      const kasirAuthPin = String(settings?.kasirAuthPin || '').trim();
+      if (kasirAuthPin && nextPin === kasirAuthPin && onEnterKasirMode) {
+        setPinInput('');
+        onEnterKasirMode();
         return;
       }
-      if (matches.length > 1) {
-        // Fallback aman khusus outlet lama yang masih punya PIN kembar
-        setDuplicatePinMatches(matches);
+
+      // 2. Cek apakah ini PIN Owner atau Manager
+      const privilegedMatches = activeUsers.filter(
+        (u) => (u.role === 'owner' || u.role === 'manager') && String(u.pin || '').trim() === nextPin
+      );
+      if (privilegedMatches.length === 1) {
+        proceedWithMatchedUser(privilegedMatches[0]);
+        return;
+      }
+      if (privilegedMatches.length > 1) {
+        setDuplicatePinMatches(privilegedMatches);
         setPinInput('');
         return;
       }
-      proceedWithMatchedUser(matches[0]);
+
+      // 3. Jika kasir mengetik PIN pribadinya di layar utama -> tolak dengan pesan jelas
+      const kasirMatch = activeUsers.find(
+        (u) => u.role === 'kasir' && String(u.pin || '').trim() === nextPin
+      );
+      if (kasirMatch) {
+        setError(
+          kasirAuthPin
+            ? 'Masukkan PIN Otorisasi Mode Kasir dulu untuk masuk ke Mode Kasir. PIN pribadi digunakan di dalam Mode Kasir (Absen & Buka Kasir).'
+            : 'PIN Otorisasi Mode Kasir belum diatur oleh Owner di menu Pengaturan.'
+        );
+        setTimeout(() => setPinInput(''), 350);
+        return;
+      }
+
+      setError('PIN tidak dikenali. Periksa kembali 6 angka PIN Anda.');
+      setTimeout(() => setPinInput(''), 350);
     }
   };
 
@@ -690,7 +714,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
                     {settings?.namaUsaha || 'Lembayung'}
                   </div>
                   <div className="text-xs text-[#6b6a68]">
-                    Masukkan 6 angka PIN Anda
+                    Masukkan PIN Otorisasi Kasir atau PIN Owner / Manager
                   </div>
                 </div>
 
@@ -745,15 +769,6 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
                     <Delete size={20} />
                   </button>
                 </div>
-
-                {/* Tombol Cepat Absen Masuk / Pulang (Bisa Dipakai Sebelum Buka Kasir) */}
-                <button
-                  type="button"
-                  onClick={() => setShowAttendanceKiosk(true)}
-                  className="w-full h-11 rounded-xl bg-[#e4f1ea] hover:bg-[#d5eadf] border border-[#1F7A5A]/30 text-[#1F7A5A] font-semibold text-xs flex items-center justify-center gap-2 transition mt-1"
-                >
-                  <Clock size={15} /> Absen Masuk / Pulang (Selfie)
-                </button>
               </>
             ) : (
               /* Jika akun belum punya PIN, minta buat PIN 6 digit dulu */
@@ -1468,10 +1483,6 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
           Lembayung v{getInstalledAppVersion()}
         </div>
       </div>
-
-      {showAttendanceKiosk && (
-        <AttendanceKioskModal onClose={() => setShowAttendanceKiosk(false)} />
-      )}
     </div>
   );
 };

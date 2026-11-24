@@ -803,14 +803,24 @@ export const PosPage: React.FC<PosPageProps> = ({ user, onOpenHistory }) => {
                 setDeleteOrderErr('Alasan pembatalan wajib diisi (min. 3 karakter).');
                 return;
               }
+              const kasirAuthPin = String(settings?.kasirAuthPin || '').trim();
               const allUsers = await db.users.toArray();
-              const actor = allUsers.find(
-                (u) => u.active && String(u.pin || '').trim() === cleanPin
+              const isAuthPinMatch = Boolean(kasirAuthPin && cleanPin === kasirAuthPin);
+              const privilegedActor = allUsers.find(
+                (u) =>
+                  u.active &&
+                  (u.role === 'owner' || u.role === 'manager') &&
+                  String(u.pin || '').trim() === cleanPin
               );
-              if (!actor) {
-                setDeleteOrderErr('PIN tidak dikenali. Periksa kembali 6 angka PIN Anda.');
+              if (!isAuthPinMatch && !privilegedActor) {
+                setDeleteOrderErr(
+                  kasirAuthPin
+                    ? 'PIN Otorisasi salah. Masukkan 6 angka PIN Otorisasi Mode Kasir.'
+                    : 'PIN tidak dikenali. Atur PIN Otorisasi Mode Kasir di Pengaturan atau gunakan PIN Owner/Manager.'
+                );
                 return;
               }
+              const actor = privilegedActor ?? user;
               const target = deleteOrderTarget;
               const targetTotal = target.items.reduce((s, i) => s + i.hargaJual * i.jumlah, 0);
               await deleteHoldOrder(target.id);
@@ -854,7 +864,7 @@ export const PosPage: React.FC<PosPageProps> = ({ user, onOpenHistory }) => {
             </div>
             <div>
               <label className="block text-xs font-semibold text-[#4a4947] mb-1">
-                Masukkan PIN Anda (6 Angka) *
+                PIN Otorisasi Mode Kasir (6 Angka) *
               </label>
               <input
                 type="password"

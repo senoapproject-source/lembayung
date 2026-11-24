@@ -268,6 +268,7 @@ export interface AppSettings {
   parentOutletId?: string; // ID outlet pusat jika merupakan cabang baru
   namaCabang?: string; // Nama cabang, misal: "Pusat", "Cabang Sudirman"
   workShifts?: WorkShiftSchedule[]; // Master jadwal shift kerja (Pagi, Middle, Sore, Malam)
+  kasirAuthPin?: string; // PIN Otorisasi 6 angka khusus masuk Mode Kasir & hapus Open Bill
 }
 
 export interface BranchInfo {

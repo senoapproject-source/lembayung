@@ -361,6 +361,8 @@ CREATE POLICY "Allow public read and upload on cuanin-receipts"
 -- ============================================================================
 ALTER TABLE public.outlets
   ADD COLUMN IF NOT EXISTS work_shifts JSONB;
+ALTER TABLE public.outlets
+  ADD COLUMN IF NOT EXISTS kasir_auth_pin TEXT;
 
 CREATE TABLE IF NOT EXISTS public.attendances (
   outlet_id TEXT NOT NULL,

@@ -801,11 +801,18 @@ async function pushAllLocalToSupabaseInternal(includeUsers: boolean): Promise<{
         });
     }
 
-    // Simpan master jadwal shift kerja jika kolom work_shifts tersedia di outlets
+    // Simpan master jadwal shift kerja & PIN Otorisasi Kasir jika kolom tersedia di outlets
+    const outletExtraPatch: Record<string, unknown> = {};
     if (settings?.workShifts && settings.workShifts.length > 0) {
+      outletExtraPatch.work_shifts = settings.workShifts;
+    }
+    if (settings?.kasirAuthPin) {
+      outletExtraPatch.kasir_auth_pin = settings.kasirAuthPin;
+    }
+    if (Object.keys(outletExtraPatch).length > 0) {
       await client
         .from('outlets')
-        .update({ work_shifts: settings.workShifts, updated_at: nowIso })
+        .update({ ...outletExtraPatch, updated_at: nowIso })
         .eq('outlet_id', outletId)
         .then(() => {});
     }
@@ -942,6 +949,7 @@ export async function pullAllFromSupabase(overrideOutletId?: string): Promise<{
     workShifts: Array.isArray(outletRow.work_shifts)
       ? (outletRow.work_shifts as WorkShiftSchedule[])
       : settings?.workShifts,
+    kasirAuthPin: outletRow.kasir_auth_pin || settings?.kasirAuthPin,
   };
 
   const mappedUsers: User[] = (usersRes.data || []).map((u) => ({

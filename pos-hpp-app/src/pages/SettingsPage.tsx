@@ -774,6 +774,58 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
             />
           </button>
         </div>
+
+        {/* PIN Otorisasi Kasir (Masuk Mode Kasir & Hapus Open Bill) */}
+        <div className="px-3.5 py-3 flex flex-col gap-2">
+          <div className="flex justify-between items-center gap-2">
+            <div>
+              <div className="font-medium text-sm">PIN Otorisasi Mode Kasir (6 Angka)</div>
+              <div className="text-xs text-[#6b6a68]">
+                Dipakai untuk masuk ke Mode Kasir &amp; menghapus pesanan tersimpan (Open Bill)
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={async () => {
+                const generated = generateUniqueSixDigitPin(users);
+                await updateSettings({ kasirAuthPin: generated }, user);
+                notify(`PIN Otorisasi Mode Kasir diperbarui: ${generated}`);
+              }}
+              className="text-xs font-semibold text-[#1F7A5A] bg-[#e4f1ea] px-2.5 py-1.5 rounded-lg shrink-0 whitespace-nowrap"
+            >
+              Acak PIN
+            </button>
+          </div>
+          <div className="flex items-center gap-2">
+            <input
+              type="text"
+              inputMode="numeric"
+              maxLength={6}
+              defaultValue={settings.kasirAuthPin || ''}
+              key={settings.kasirAuthPin || 'empty-auth-pin'}
+              placeholder="Contoh: 889900"
+              onBlur={async (e) => {
+                const val = e.target.value.replace(/\D/g, '').trim();
+                if (!val || val === (settings.kasirAuthPin || '')) return;
+                const pinErr = validatePin(val);
+                if (pinErr) {
+                  alert(pinErr);
+                  e.target.value = settings.kasirAuthPin || '';
+                  return;
+                }
+                const dup = findDuplicatePinOwner(val, users);
+                if (dup) {
+                  alert(`PIN "${val}" sudah dipakai oleh akun ${dup.nama}. Gunakan 6 angka lain.`);
+                  e.target.value = settings.kasirAuthPin || '';
+                  return;
+                }
+                await updateSettings({ kasirAuthPin: val }, user);
+                notify('PIN Otorisasi Mode Kasir berhasil disimpan.');
+              }}
+              className="flex-1 h-10 border border-[#d6d3c8] rounded-[10px] px-3 text-sm font-bold tracking-[0.25em] text-[#1F7A5A]"
+            />
+          </div>
+        </div>
       </div>
 
       {/* Pengguna (di Website sudah ada menu khusus Cabang & Tim) */}

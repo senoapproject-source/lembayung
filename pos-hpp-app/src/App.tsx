@@ -33,6 +33,7 @@ import { WebDashboardShell } from './web/WebDashboardShell';
 import { CuaninLogo } from './components/CuaninLogo';
 import { LembayungSplash } from './components/LembayungSplash';
 import { AttendanceKioskModal } from './components/AttendanceKioskModal';
+import { KasirStandbyScreen } from './components/KasirStandbyScreen';
 import { UpdatePromptModal } from './components/UpdatePromptModal';
 import { MAX_OPEN_ATTENDANCE_HOURS } from './services/attendanceService';
 import { CloseShiftModal, OpenShiftScreen } from './components/CashierShiftModals';
@@ -77,6 +78,7 @@ type ActiveView =
 
 const SESSION_KEY = 'pos_hpp_active_user_id';
 const THEME_KEY = 'cuanin_theme_mode';
+const KASIR_MODE_KEY = 'lembayung_kasir_mode_active';
 
 export function App() {
   const [ready, setReady] = useState(false);
@@ -101,6 +103,9 @@ export function App() {
   const [backExitToast, setBackExitToast] = useState<boolean>(false);
   const [showCloseShiftModal, setShowCloseShiftModal] = useState<boolean>(false);
   const [showAttendanceKiosk, setShowAttendanceKiosk] = useState<boolean>(false);
+  const [kasirModeActive, setKasirModeActive] = useState<boolean>(
+    () => localStorage.getItem(KASIR_MODE_KEY) === '1'
+  );
   const [showSplash, setShowSplash] = useState<boolean>(() => {
     if (Capacitor.isNativePlatform()) return true;
     return sessionStorage.getItem('lembayung_splash_done') !== '1';
@@ -395,11 +400,25 @@ export function App() {
     setCurrentUserId(null);
   };
 
+  const handleEnterKasirMode = () => {
+    localStorage.setItem(KASIR_MODE_KEY, '1');
+    setKasirModeActive(true);
+  };
+
+  const handleExitKasirMode = () => {
+    localStorage.removeItem(KASIR_MODE_KEY);
+    localStorage.removeItem(SESSION_KEY);
+    setKasirModeActive(false);
+    setCurrentUserId(null);
+  };
+
   const handleFullLogout = () => {
     unregisterFcmPushToken().catch(() => {});
     localStorage.removeItem(SESSION_KEY);
     localStorage.removeItem(REMEMBERED_USER_KEY);
+    localStorage.removeItem(KASIR_MODE_KEY);
     viewHistoryRef.current = [];
+    setKasirModeActive(false);
     setCurrentUserId(null);
   };
 
@@ -483,6 +502,29 @@ export function App() {
   }
 
   if (!currentUser || !currentUser.active) {
+    if (kasirModeActive) {
+      return (
+        <>
+          {splashOverlay}
+          <KasirStandbyScreen
+            onCashierIdentified={handleLogin}
+            onExitKasirMode={handleExitKasirMode}
+          />
+          {updateInfo?.hasUpdate && !updateDismissed && (
+            <UpdatePromptModal
+              info={updateInfo}
+              onDismiss={() => {
+                if (updateInfo?.latestVersion) {
+                  sessionStorage.setItem('cuanin_dismissed_update_ver', updateInfo.latestVersion);
+                }
+                setUpdateDismissed(true);
+              }}
+            />
+          )}
+        </>
+      );
+    }
+
     return (
       <div className="min-h-screen bg-[#faf9f5] safe-frame flex justify-center items-center relative">
         {splashOverlay}
@@ -495,7 +537,10 @@ export function App() {
           {darkMode ? <Sun size={18} /> : <Moon size={18} />}
         </button>
         <div className="w-full max-w-[440px]">
-          <LoginPage onLoginSuccess={handleLogin} />
+          <LoginPage
+            onLoginSuccess={handleLogin}
+            onEnterKasirMode={handleEnterKasirMode}
+          />
         </div>
       {backExitToast && (
         <div className="fixed bottom-20 left-1/2 -translate-x-1/2 z-50 bg-[#18181B]/95 text-white text-xs font-medium px-4 py-2 rounded-full shadow-lg pointer-events-none whitespace-nowrap">
