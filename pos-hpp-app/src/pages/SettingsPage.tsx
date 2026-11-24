@@ -27,8 +27,30 @@ import {
 import { validatePassword, validatePin } from '../lib/validation';
 import { compressLogoFileToDataUrl } from '../lib/receipt';
 import { CustomSelect } from '../components/CustomSelect';
-import type { RoundingStep, User } from '../types/models';
+import type { AppSettings, RoundingStep, User } from '../types/models';
 import { AlertCircle, Check, Copy, LogOut, RotateCcw, Store, Trash2, Upload, X } from 'lucide-react';
+
+const FALLBACK_SETTINGS: AppSettings = {
+  id: 'global',
+  namaUsaha: 'Lembayung',
+  namaCabang: 'Pusat',
+  alamatUsaha: '-',
+  teleponUsaha: '',
+  strukFooter: 'Terima kasih!',
+  strukTampilkanKasir: true,
+  strukTampilkanCatatanItem: true,
+  strukTampilkanWaUsaha: true,
+  defaultMarginPersen: 50,
+  metodeHargaBahan: 'last',
+  jumlahPembelianN: 5,
+  pembulatanHarga: 500,
+  ambangMepetBepPersen: 10,
+  defaultKasirDiscount: false,
+  defaultKasirRecordExpense: true,
+  cloudSyncMode: 'supabase',
+  outletId: '',
+  lastBackupAt: '',
+};
 
 interface SettingsPageProps {
   user: User;
@@ -45,7 +67,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   onBack,
   onLogout,
 }) => {
-  const settings = useLiveQuery(() => db.settings.get('global'));
+  const rawSettings = useLiveQuery(() => db.settings.get('global'));
   const users = useLiveQuery(() => db.users.toArray()) ?? [];
   const categories = useLiveQuery(() => db.expenseCategories.toArray()) ?? [];
 
@@ -84,12 +106,27 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
 
   // Tarik daftar pengguna & pengaturan terbaru dari Cloud saat membuka halaman Pengaturan
   useEffect(() => {
+    db.settings
+      .get('global')
+      .then((existing) => {
+        if (!existing) {
+          return db.settings.put({
+            ...FALLBACK_SETTINGS,
+            ownerEmail: user.email || undefined,
+          });
+        }
+      })
+      .catch(() => {});
+
     if (navigator.onLine) {
       syncWithCloud().catch(() => {});
     }
-  }, []);
+  }, [user.email]);
 
-  if (!settings) return null;
+  const settings: AppSettings = rawSettings ?? {
+    ...FALLBACK_SETTINGS,
+    ownerEmail: user.email || undefined,
+  };
 
   const notify = (msg: string) => {
     setStatusMessage(msg);

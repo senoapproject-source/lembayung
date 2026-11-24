@@ -503,8 +503,27 @@ export async function updateSettings(
   patch: Partial<AppSettings>,
   user: User
 ): Promise<void> {
-  const current = await db.settings.get('global');
-  if (!current) return;
+  const current = (await db.settings.get('global')) ?? {
+    id: 'global' as const,
+    namaUsaha: 'Lembayung',
+    namaCabang: 'Pusat',
+    alamatUsaha: '-',
+    teleponUsaha: '',
+    strukFooter: 'Terima kasih!',
+    strukTampilkanKasir: true,
+    strukTampilkanCatatanItem: true,
+    strukTampilkanWaUsaha: true,
+    defaultMarginPersen: 50,
+    metodeHargaBahan: 'last' as const,
+    jumlahPembelianN: 5,
+    pembulatanHarga: 500 as const,
+    ambangMepetBepPersen: 10,
+    defaultKasirDiscount: false,
+    defaultKasirRecordExpense: true,
+    cloudSyncMode: 'supabase' as const,
+    outletId: '',
+    lastBackupAt: '',
+  };
   const updated: AppSettings = { ...current, ...patch };
   await db.settings.put(updated);
 
