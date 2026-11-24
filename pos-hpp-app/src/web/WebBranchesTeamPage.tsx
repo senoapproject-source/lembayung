@@ -28,6 +28,7 @@ import {
   Phone,
   Plus,
   Search,
+  Settings,
   Shield,
   Trash2,
   UserPlus,
@@ -43,6 +44,7 @@ interface WebBranchesTeamPageProps {
   section?: 'branches' | 'team' | 'all';
   onBranchCreated: (branch: BranchInfo) => void;
   onBranchUpdated?: (branch: BranchInfo) => void;
+  onOpenBranchSettings?: (outletId: string) => void;
   onSelectBranch: (outletId: string) => void;
 }
 
@@ -54,6 +56,7 @@ export const WebBranchesTeamPage: React.FC<WebBranchesTeamPageProps> = ({
   section = 'all',
   onBranchCreated,
   onBranchUpdated,
+  onOpenBranchSettings,
 }) => {
   const users = useLiveQuery(() => db.users.toArray()) ?? [];
   const isOwner = user.role === 'owner';
@@ -719,6 +722,15 @@ export const WebBranchesTeamPage: React.FC<WebBranchesTeamPageProps> = ({
 
                           <td className="py-3.5 px-4 text-right whitespace-nowrap">
                             <div className="inline-flex items-center gap-1.5">
+                              {onOpenBranchSettings && (
+                                <button
+                                  type="button"
+                                  onClick={() => onOpenBranchSettings(b.outletId)}
+                                  className="h-8 px-2.5 rounded-lg border border-[#1F7A5A] bg-[#1F7A5A] hover:bg-[#15563f] text-white text-[11px] font-semibold inline-flex items-center gap-1 transition"
+                                >
+                                  <Settings size={12} /> Pengaturan
+                                </button>
+                              )}
                               <button
                                 type="button"
                                 onClick={() => openEditBranch(b)}

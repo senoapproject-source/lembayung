@@ -791,20 +791,12 @@ export function App() {
               />
             )}
             {isOwner && (
-              <>
-                <SidebarItem
-                  active={safeView === 'cabang'}
-                  onClick={() => setActiveView('cabang')}
-                  icon={<Building2 size={17} />}
-                  label="Manajemen Cabang"
-                />
-                <SidebarItem
-                  active={safeView === 'pengaturan'}
-                  onClick={() => setActiveView('pengaturan')}
-                  icon={<Settings size={17} />}
-                  label="Pengaturan"
-                />
-              </>
+              <SidebarItem
+                active={safeView === 'pengaturan' || safeView === 'cabang'}
+                onClick={() => setActiveView('pengaturan')}
+                icon={<Settings size={17} />}
+                label="Cabang & Pengaturan"
+              />
             )}
           </nav>
         </div>
@@ -927,24 +919,10 @@ export function App() {
           {isOwner && (
             <button
               type="button"
-              onClick={() => setActiveView('cabang')}
-              title="Manajemen Cabang"
-              className={`p-1.5 rounded-md transition ${
-                safeView === 'cabang'
-                  ? 'bg-[#e4f1ea] text-[#1F7A5A]'
-                  : 'text-[#4a4947] hover:bg-[#ece9e0]'
-              }`}
-            >
-              <Building2 size={15} />
-            </button>
-          )}
-          {isOwner && (
-            <button
-              type="button"
               onClick={() => setActiveView('pengaturan')}
-              title="Pengaturan"
+              title="Cabang & Pengaturan"
               className={`p-1.5 rounded-md transition ${
-                safeView === 'pengaturan'
+                safeView === 'pengaturan' || safeView === 'cabang'
                   ? 'bg-[#e4f1ea] text-[#1F7A5A]'
                   : 'text-[#4a4947] hover:bg-[#ece9e0]'
               }`}
@@ -1029,32 +1007,63 @@ export function App() {
         {safeView === 'absensi' && isManagerOrOwner && (
           <AttendanceReportPage user={currentUser} onBack={() => setActiveView('laporan')} />
         )}
-        {safeView === 'cabang' && isOwner && (
-          <div className="p-3.5 sm:p-5 max-w-[1200px] mx-auto">
-            <WebBranchesTeamPage
-              user={currentUser}
-              settings={settings}
-              branches={ownerBranches}
-              activeOutletId={(settings?.outletId || '').trim().toUpperCase()}
-              section="branches"
-              onBranchCreated={(b) => setOwnerBranches((prev) => [...prev, b])}
-              onBranchUpdated={(updated) =>
-                setOwnerBranches((prev) =>
-                  prev.map((b) => (b.outletId === updated.outletId ? { ...b, ...updated } : b))
-                )
-              }
-              onSelectBranch={handleNativeBranchSwitch}
-            />
+        {(safeView === 'pengaturan' || safeView === 'cabang') && isOwner && (
+          <div className="flex flex-col">
+            <div className="px-3.5 sm:px-5 pt-3 pb-1 flex items-center gap-1.5 max-w-[1200px] w-full mx-auto">
+              <button
+                type="button"
+                onClick={() => setActiveView('pengaturan')}
+                className={`h-9 px-3.5 rounded-xl text-xs font-semibold inline-flex items-center gap-1.5 border transition ${
+                  safeView === 'pengaturan'
+                    ? 'bg-[#1F7A5A] border-[#1F7A5A] text-white'
+                    : 'bg-white border-[#d6d3c8] text-[#4a4947]'
+                }`}
+              >
+                <Settings size={13} /> Pengaturan Outlet
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveView('cabang')}
+                className={`h-9 px-3.5 rounded-xl text-xs font-semibold inline-flex items-center gap-1.5 border transition ${
+                  safeView === 'cabang'
+                    ? 'bg-[#1F7A5A] border-[#1F7A5A] text-white'
+                    : 'bg-white border-[#d6d3c8] text-[#4a4947]'
+                }`}
+              >
+                <Building2 size={13} /> Daftar Cabang ({ownerBranches.length || 1})
+              </button>
+            </div>
+            {safeView === 'cabang' ? (
+              <div className="p-3.5 sm:p-5 max-w-[1200px] w-full mx-auto">
+                <WebBranchesTeamPage
+                  user={currentUser}
+                  settings={settings}
+                  branches={ownerBranches}
+                  activeOutletId={(settings?.outletId || '').trim().toUpperCase()}
+                  section="branches"
+                  onBranchCreated={(b) => setOwnerBranches((prev) => [...prev, b])}
+                  onBranchUpdated={(updated) =>
+                    setOwnerBranches((prev) =>
+                      prev.map((b) => (b.outletId === updated.outletId ? { ...b, ...updated } : b))
+                    )
+                  }
+                  onOpenBranchSettings={async (oid) => {
+                    await handleNativeBranchSwitch(oid);
+                    setActiveView('pengaturan');
+                  }}
+                  onSelectBranch={handleNativeBranchSwitch}
+                />
+              </div>
+            ) : (
+              <SettingsPage
+                user={currentUser}
+                darkMode={darkMode}
+                onToggleDarkMode={toggleDarkMode}
+                onBack={() => setActiveView('laporan')}
+                onLogout={handleFullLogout}
+              />
+            )}
           </div>
-        )}
-        {safeView === 'pengaturan' && isOwner && (
-          <SettingsPage
-            user={currentUser}
-            darkMode={darkMode}
-            onToggleDarkMode={toggleDarkMode}
-            onBack={() => setActiveView('laporan')}
-            onLogout={handleFullLogout}
-          />
         )}
       </main>
 

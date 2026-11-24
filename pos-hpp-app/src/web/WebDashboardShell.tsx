@@ -100,6 +100,7 @@ export const WebDashboardShell: React.FC<WebDashboardShellProps> = ({
   const isOwner = user.role === 'owner';
 
   const [activeTab, setActiveTab] = useState<WebTab>('overview');
+  const [branchSubTab, setBranchSubTab] = useState<'branches' | 'settings'>('branches');
   const [branches, setBranches] = useState<BranchInfo[]>([]);
   const [selectedBranchKey, setSelectedBranchKey] = useState<string>(''); // '' = current active branch, 'ALL' = gabungan semua cabang
   const [switchingBranch, setSwitchingBranch] = useState(false);
@@ -209,12 +210,12 @@ export const WebDashboardShell: React.FC<WebDashboardShellProps> = ({
         : 'Kelola akun Kasir yang aktif di usaha Anda',
     },
     branches: {
-      title: 'Manajemen Cabang',
-      subtitle: 'Kelola daftar cabang outlet, ID Outlet perangkat kasir, dan salin katalog menu',
+      title: 'Cabang & Pengaturan Outlet',
+      subtitle: 'Pantau status buka/tutup cabang, ID Outlet, PIN Otorisasi, profil struk, dan pengaturan outlet',
     },
     settings: {
-      title: 'Pengaturan Outlet & Struk',
-      subtitle: 'Profil usaha, logo struk, domain struk web, dan aturan margin default',
+      title: 'Cabang & Pengaturan Outlet',
+      subtitle: 'Pantau status buka/tutup cabang, ID Outlet, PIN Otorisasi, profil struk, dan pengaturan outlet',
     },
   };
 
@@ -338,18 +339,13 @@ export const WebDashboardShell: React.FC<WebDashboardShellProps> = ({
             />
             {isOwner && (
               <WebNavItem
-                active={activeTab === 'branches'}
-                onClick={() => setActiveTab('branches')}
+                active={activeTab === 'branches' || activeTab === 'settings'}
+                onClick={() => {
+                  setActiveTab('branches');
+                  setBranchSubTab('branches');
+                }}
                 icon={<Building2 size={16} />}
-                label="Manajemen Cabang"
-              />
-            )}
-            {isOwner && (
-              <WebNavItem
-                active={activeTab === 'settings'}
-                onClick={() => setActiveTab('settings')}
-                icon={<Settings size={16} />}
-                label="Pengaturan Outlet"
+                label="Cabang & Pengaturan"
               />
             )}
           </nav>
@@ -620,47 +616,87 @@ export const WebDashboardShell: React.FC<WebDashboardShellProps> = ({
                 onSelectBranch={handleBranchSwitch}
               />
             )}
-            {activeTab === 'branches' && isOwner && (
-              <WebBranchesTeamPage
-                user={user}
-                settings={settings}
-                branches={branches}
-                activeOutletId={activeOutletId}
-                section="branches"
-                onBranchCreated={(b) => {
-                  setBranches((prev) => [...prev, b]);
-                  setToastMsg(`Cabang "${b.namaCabang}" (${b.outletId}) berhasil dibuat!`);
-                  setTimeout(() => setToastMsg(''), 4000);
-                }}
-                onBranchUpdated={(updated) => {
-                  setBranches((prev) =>
-                    prev.map((b) => (b.outletId === updated.outletId ? { ...b, ...updated } : b))
-                  );
-                }}
-                onSelectBranch={handleBranchSwitch}
-              />
-            )}
-            {activeTab === 'settings' &&
-              isOwner &&
-              (isAllBranchesMode ? (
-                <WebAllBranchesModuleView
-                  module="settings"
-                  branches={branches}
-                  dateFrom={dateFrom}
-                  dateTo={dateTo}
-                  onOpenBranchModule={(oid, mod: AllBranchesModule) => handleBranchSwitch(oid, mod)}
-                />
-              ) : (
-                <div className="bg-white border border-[#e2e0d8] rounded-2xl overflow-hidden">
-                  <SettingsPage
-                    user={user}
-                    darkMode={darkMode}
-                    onToggleDarkMode={onToggleDarkMode}
-                    onBack={() => setActiveTab('overview')}
-                    onLogout={onLogout}
-                  />
+            {(activeTab === 'branches' || activeTab === 'settings') && isOwner && (
+              <div className="flex flex-col gap-4">
+                <div className="inline-flex bg-white border border-[#e2e0d8] rounded-xl p-1 gap-1 w-fit">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveTab('branches');
+                      setBranchSubTab('branches');
+                    }}
+                    className={`h-9 px-4 rounded-lg text-xs font-semibold inline-flex items-center gap-1.5 transition ${
+                      branchSubTab === 'branches' && activeTab === 'branches'
+                        ? 'bg-[#1F7A5A] text-white'
+                        : 'text-[#4a4947] hover:bg-[#faf9f5]'
+                    }`}
+                  >
+                    <Building2 size={14} /> Daftar Cabang ({branches.length})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveTab('branches');
+                      setBranchSubTab('settings');
+                    }}
+                    className={`h-9 px-4 rounded-lg text-xs font-semibold inline-flex items-center gap-1.5 transition ${
+                      branchSubTab === 'settings' || activeTab === 'settings'
+                        ? 'bg-[#1F7A5A] text-white'
+                        : 'text-[#4a4947] hover:bg-[#faf9f5]'
+                    }`}
+                  >
+                    <Settings size={14} /> Pengaturan Outlet
+                    {!isAllBranchesMode && settings?.namaCabang ? ` (${settings.namaCabang})` : ''}
+                  </button>
                 </div>
-              ))}
+
+                {branchSubTab === 'branches' && activeTab === 'branches' ? (
+                  <WebBranchesTeamPage
+                    user={user}
+                    settings={settings}
+                    branches={branches}
+                    activeOutletId={activeOutletId}
+                    section="branches"
+                    onBranchCreated={(b) => {
+                      setBranches((prev) => [...prev, b]);
+                      setToastMsg(`Cabang "${b.namaCabang}" (${b.outletId}) berhasil dibuat!`);
+                      setTimeout(() => setToastMsg(''), 4000);
+                    }}
+                    onBranchUpdated={(updated) => {
+                      setBranches((prev) =>
+                        prev.map((b) => (b.outletId === updated.outletId ? { ...b, ...updated } : b))
+                      );
+                    }}
+                    onOpenBranchSettings={async (oid) => {
+                      await handleBranchSwitch(oid, 'branches');
+                      setBranchSubTab('settings');
+                    }}
+                    onSelectBranch={handleBranchSwitch}
+                  />
+                ) : isAllBranchesMode ? (
+                  <WebAllBranchesModuleView
+                    module="settings"
+                    branches={branches}
+                    dateFrom={dateFrom}
+                    dateTo={dateTo}
+                    onOpenBranchModule={async (oid) => {
+                      await handleBranchSwitch(oid, 'branches');
+                      setBranchSubTab('settings');
+                    }}
+                  />
+                ) : (
+                  <div className="bg-white border border-[#e2e0d8] rounded-2xl overflow-hidden">
+                    <SettingsPage
+                      user={user}
+                      darkMode={darkMode}
+                      onToggleDarkMode={onToggleDarkMode}
+                      onBack={() => setBranchSubTab('branches')}
+                      onLogout={onLogout}
+                    />
+                  </div>
+                )}
+              </div>
+            )}
           </main>
         )}
       </div>
