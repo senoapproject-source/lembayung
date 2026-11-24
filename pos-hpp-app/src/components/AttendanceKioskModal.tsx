@@ -53,6 +53,7 @@ export const AttendanceKioskModal: React.FC<AttendanceKioskModalProps> = ({
   const [duplicateMatches, setDuplicateMatches] = useState<User[]>([]);
   const [matchedUser, setMatchedUser] = useState<User | null>(preselectedUser ?? null);
   const [activeAtt, setActiveAtt] = useState<AttendanceRecord | null>(null);
+  const [hasOpenShiftForUser, setHasOpenShiftForUser] = useState(false);
   const [forgotNotice, setForgotNotice] = useState<AttendanceRecord | null>(null);
   const [selectedShift, setSelectedShift] = useState<WorkShiftSchedule>(() =>
     detectClosestWorkShift(new Date(), workShifts)
@@ -149,10 +150,17 @@ export const AttendanceKioskModal: React.FC<AttendanceKioskModalProps> = ({
     setDuplicateMatches([]);
     const now = new Date();
     setNowClock(now);
-    const { activeAttendance, autoClosedForgotRecord } =
-      await findActiveAttendanceForUser(found.id, now);
+    const [{ activeAttendance, autoClosedForgotRecord }, openShifts] = await Promise.all([
+      findActiveAttendanceForUser(found.id, now),
+      db.cashierShifts
+        .where('kasirId')
+        .equals(found.id)
+        .filter((s) => s.status === 'open')
+        .toArray(),
+    ]);
     setMatchedUser(found);
     setActiveAtt(activeAttendance);
+    setHasOpenShiftForUser(openShifts.length > 0);
     setForgotNotice(autoClosedForgotRecord);
     setSelectedShift(detectClosestWorkShift(now, workShifts));
     setCapturedPhoto('');
@@ -428,6 +436,16 @@ export const AttendanceKioskModal: React.FC<AttendanceKioskModalProps> = ({
               )}
             </div>
 
+            {isClockOutMode && hasOpenShiftForUser && (
+              <div className="bg-[#fbe4e1] border border-[#f5c2bb] text-[#9b1c12] rounded-xl px-3.5 py-2.5 text-xs flex items-start gap-2">
+                <AlertTriangle size={15} className="shrink-0 mt-0.5" />
+                <span>
+                  <strong>Shift kasir Anda masih terbuka!</strong> Mohon selesaikan{' '}
+                  <strong>Tutup Kasir</strong> terlebih dahulu sebelum melakukan Absen Pulang.
+                </span>
+              </div>
+            )}
+
             {forgotNotice && (
               <div className="bg-[#fbeed9] border border-[#f0dcb8] text-[#7a4300] rounded-xl px-3 py-2 text-xs flex items-start gap-2">
                 <AlertTriangle size={15} className="shrink-0 mt-0.5" />
@@ -528,7 +546,11 @@ export const AttendanceKioskModal: React.FC<AttendanceKioskModalProps> = ({
 
             <button
               type="button"
-              disabled={saving || (!cameraReady && !capturedPhoto)}
+              disabled={
+                saving ||
+                (!cameraReady && !capturedPhoto) ||
+                (isClockOutMode && hasOpenShiftForUser)
+              }
               onClick={handleCaptureAndSubmit}
               className={`h-12 rounded-xl text-white font-semibold text-sm flex items-center justify-center gap-2 disabled:opacity-50 transition ${
                 isClockOutMode

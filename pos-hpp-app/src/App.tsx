@@ -570,8 +570,8 @@ export function App() {
   const isOwner = currentUser.role === 'owner';
   const isManagerOrOwner = currentUser.role === 'owner' || currentUser.role === 'manager';
 
-  // Khusus Kasir: wajib Absen Masuk (Selfie) dulu sebelum Buka Kasir
-  if (!isManagerOrOwner && activeUserAttendance === null) {
+  // Khusus Kasir: wajib Absen Masuk (Selfie) dulu sebelum Buka Kasir (hanya jika belum ada shift kasir terbuka)
+  if (!isManagerOrOwner && !activeCashierShift && activeUserAttendance === null) {
     return (
       <>
         {splashOverlay}
