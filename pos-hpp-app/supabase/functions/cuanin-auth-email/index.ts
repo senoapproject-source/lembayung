@@ -285,16 +285,16 @@ async function checkRegistrationDuplicate(
   const outletRows = (outletsRes.data as Array<{ owner_email: string | null }> | null) || [];
   const usernameTaken = Boolean(
     cleanUser &&
-      rows.some((r) => (r.username || '').trim().toLowerCase() === cleanUser)
+    rows.some((r) => (r.username || '').trim().toLowerCase() === cleanUser)
   );
   const emailTaken = Boolean(
     cleanEmail &&
-      (rows.some((r) => {
-        const rowEmail = (r.email || '').trim().toLowerCase();
-        const rowUser = (r.username || '').trim().toLowerCase();
-        return rowEmail === cleanEmail || rowUser === cleanEmail;
-      }) ||
-        outletRows.some((o) => (o.owner_email || '').trim().toLowerCase() === cleanEmail))
+    (rows.some((r) => {
+      const rowEmail = (r.email || '').trim().toLowerCase();
+      const rowUser = (r.username || '').trim().toLowerCase();
+      return rowEmail === cleanEmail || rowUser === cleanEmail;
+    }) ||
+      outletRows.some((o) => (o.owner_email || '').trim().toLowerCase() === cleanEmail))
   );
 
   if (usernameTaken && emailTaken) {
@@ -1294,6 +1294,61 @@ Deno.serve(async (req: Request) => {
       return jsonRes({
         success: true,
         message: `Informasi akun berhasil dikirim ke email ${email}.`,
+      });
+    }
+
+    // =========================================================================
+    // 10c. KIRIM EMAIL PEMBUATAN CABANG BARU KE OWNER (ID OUTLET + PIN OTORISASI)
+    // =========================================================================
+    if (action === 'send_new_branch_email') {
+      const email = String(payload.email || '').trim().toLowerCase();
+      const namaOwner = String(payload.namaOwner || 'Owner').trim();
+      const namaUsaha = String(payload.namaUsaha || 'Lembayung').trim();
+      const namaCabang = String(payload.namaCabang || 'Cabang Baru').trim();
+      const alamatCabang = String(payload.alamatCabang || '-').trim();
+      const outletId = String(payload.outletId || '').trim().toUpperCase();
+      const kasirAuthPin = String(payload.kasirAuthPin || '').trim();
+      const backofficeUrl = String(payload.backofficeUrl || 'https://lembayung-so1.pages.dev').trim();
+
+      if (!email || !outletId) {
+        return jsonRes({ success: false, error: 'Email Owner dan ID Outlet cabang wajib diisi.' }, 200);
+      }
+
+      await sendBrevoEmail({
+        toEmail: email,
+        toName: namaOwner,
+        subject: `[Lembayung] Cabang Baru Aktif: ${namaUsaha} — ${namaCabang} (${outletId})`,
+        htmlContent: wrapEmailLayout(
+          'Cabang Baru Berhasil Dibuat',
+          `
+          <p style="margin-top:0;">Halo <strong>${escapeHtml(namaOwner)}</strong>,</p>
+          <p>Cabang baru <strong>${escapeHtml(namaCabang)}</strong> untuk usaha <strong>${escapeHtml(namaUsaha)}</strong> telah berhasil dibuat. Simpan informasi akses perangkat kasir cabang ini:</p>
+          <div style="background:#faf9f5; border:1px solid #e2e0d8; border-radius:12px; padding:16px; margin:16px 0;">
+            <div style="font-size:12px; color:#6b6a68;">Nama Cabang</div>
+            <div style="font-size:15px; font-weight:700; color:#1f1e1d; margin-bottom:6px;">${escapeHtml(namaCabang)}</div>
+            <div style="font-size:12px; color:#6b6a68;">Alamat</div>
+            <div style="font-size:13px; color:#4a4947; margin-bottom:10px;">${escapeHtml(alamatCabang)}</div>
+            <div style="padding-top:10px; border-top:1px dashed #d6d3c8;">
+              <div style="font-size:12px; color:#6b6a68;">ID Outlet Cabang (Kode Toko)</div>
+              <div style="font-size:22px; font-weight:800; color:#1F7A5A; letter-spacing:2px; margin:2px 0 10px;">${escapeHtml(outletId)}</div>
+              <div style="font-size:12px; color:#6b6a68;">PIN Otorisasi Mode Kasir (6 Angka)</div>
+              <div style="font-size:22px; font-weight:800; color:#1F7A5A; letter-spacing:4px; margin:4px 0;">${escapeHtml(kasirAuthPin || '-')}</div>
+              <div style="font-size:11px; color:#6b6a68;">Berlaku khusus untuk cabang ini (<strong>${escapeHtml(outletId)}</strong>). Digunakan untuk masuk Mode Kasir &amp; menghapus pesanan tersimpan (Open Bill). Dapat dilihat atau di-reset kapan saja melalui menu <strong>Pengaturan</strong>.</div>
+            </div>
+          </div>
+          <div style="margin:16px 0; text-align:center;">
+            <a href="${escapeHtml(backofficeUrl)}" target="_blank" rel="noopener noreferrer" style="display:inline-block; background:#1F7A5A; color:#ffffff; text-decoration:none; font-weight:700; font-size:13px; padding:11px 22px; border-radius:10px;">
+              Kelola di Website Backoffice
+            </a>
+          </div>
+          <p style="font-size:12px; color:#6b6a68; margin-bottom:0;">Gunakan <strong>ID Outlet Cabang</strong> di atas saat menghubungkan tablet atau HP kasir di lokasi cabang baru Anda.</p>
+          `
+        ),
+      });
+
+      return jsonRes({
+        success: true,
+        message: `Informasi cabang baru berhasil dikirim ke email ${email}.`,
       });
     }
 

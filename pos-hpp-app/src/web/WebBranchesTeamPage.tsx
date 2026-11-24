@@ -114,6 +114,14 @@ export const WebBranchesTeamPage: React.FC<WebBranchesTeamPageProps> = ({
       setBAlamat('');
       setBTelepon('');
       onBranchCreated(res.branch);
+      alert(
+        `Cabang "${res.branch.namaCabang}" berhasil dibuat!\n\n` +
+          `ID Outlet: ${res.branch.outletId}\n` +
+          `PIN Otorisasi Mode Kasir: ${res.kasirAuthPin || '-'}\n\n` +
+          (res.emailSent
+            ? `Informasi lengkap juga telah dikirim ke email Owner (${res.branch.ownerEmail || user.email || ''}).`
+            : 'Catat ID Outlet & PIN Otorisasi di atas (juga bisa dilihat/di-reset di menu Pengaturan).')
+      );
     } finally {
       setBranchSaving(false);
     }

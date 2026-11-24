@@ -94,6 +94,29 @@ export function sendWelcomeOutletEmail(params: {
   return invokeAuthEmailFunction({ action: 'send_welcome_outlet', ...params });
 }
 
+export function sendNewBranchEmail(params: {
+  email: string;
+  namaOwner: string;
+  namaUsaha: string;
+  namaCabang: string;
+  alamatCabang?: string;
+  outletId: string;
+  kasirAuthPin: string;
+  backofficeUrl?: string;
+}) {
+  return invokeAuthEmailFunction({
+    action: 'send_new_branch_email',
+    email: params.email.trim().toLowerCase(),
+    namaOwner: params.namaOwner.trim(),
+    namaUsaha: params.namaUsaha.trim(),
+    namaCabang: params.namaCabang.trim(),
+    alamatCabang: params.alamatCabang?.trim() || '-',
+    outletId: params.outletId.trim().toUpperCase(),
+    kasirAuthPin: params.kasirAuthPin.trim(),
+    backofficeUrl: params.backofficeUrl || getWebBackofficeUrl(),
+  });
+}
+
 export function requestOwnerForgotPassword(identifier: string) {
   return invokeAuthEmailFunction({
     action: 'forgot_password_request',

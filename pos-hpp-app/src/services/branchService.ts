@@ -2,6 +2,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { db } from '../db/database';
 import { generateKasirAuthPin, generateOutletCode } from '../db/actions';
 import { getSupabaseClient, pullAllFromSupabase } from './syncService';
+import { sendNewBranchEmail } from './authEmailService';
 import type { AppSettings, BranchInfo, User } from '../types/models';
 
 export interface BranchPerformanceRow {
@@ -110,7 +111,13 @@ export async function createNewBranch(params: {
   alamatUsaha: string;
   teleponUsaha?: string;
   copyCatalogFromOutletId?: string;
-}): Promise<{ success: boolean; branch?: BranchInfo; error?: string }> {
+}): Promise<{
+  success: boolean;
+  branch?: BranchInfo;
+  kasirAuthPin?: string;
+  emailSent?: boolean;
+  error?: string;
+}> {
   if (typeof navigator !== 'undefined' && !navigator.onLine) {
     return { success: false, error: 'Membuat cabang baru memerlukan koneksi internet.' };
   }
@@ -247,8 +254,25 @@ export async function createNewBranch(params: {
       }
     }
 
+    // 6. Kirim email ke Owner berisi ID Outlet cabang baru & PIN Otorisasi Mode Kasir
+    let emailSent = false;
+    if (ownerEmail) {
+      const mailRes = await sendNewBranchEmail({
+        email: ownerEmail,
+        namaOwner: params.owner.nama,
+        namaUsaha: params.namaUsaha.trim(),
+        namaCabang: params.namaCabang.trim() || 'Cabang Baru',
+        alamatCabang: params.alamatUsaha.trim() || '-',
+        outletId: newOutletId,
+        kasirAuthPin: newKasirAuthPin,
+      }).catch(() => ({ success: false }));
+      emailSent = Boolean(mailRes.success);
+    }
+
     return {
       success: true,
+      kasirAuthPin: newKasirAuthPin,
+      emailSent,
       branch: {
         outletId: newOutletId,
         namaUsaha: params.namaUsaha.trim(),
