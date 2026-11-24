@@ -281,6 +281,7 @@ export interface BranchInfo {
   ownerEmail?: string;
   parentOutletId?: string;
   logoUsaha?: string;
+  kasirAuthPin?: string;
   updatedAt: string;
 }
 

@@ -41,6 +41,7 @@ export async function fetchOwnerBranches(owner: User): Promise<BranchInfo[]> {
         ownerEmail: localSettings.ownerEmail || owner.email,
         parentOutletId: localSettings.parentOutletId,
         logoUsaha: localSettings.logoUsaha,
+        kasirAuthPin: localSettings.kasirAuthPin,
         updatedAt: localSettings.lastBackupAt,
       },
     ];
@@ -88,6 +89,7 @@ export async function fetchOwnerBranches(owner: User): Promise<BranchInfo[]> {
         ownerEmail: row.owner_email || ownerEmail || undefined,
         parentOutletId: row.parent_outlet_id || undefined,
         logoUsaha: row.logo_usaha || undefined,
+        kasirAuthPin: row.kasir_auth_pin || undefined,
         updatedAt: row.updated_at || new Date().toISOString(),
       });
     }
@@ -288,6 +290,7 @@ export async function createNewBranch(params: {
         ownerEmail: ownerEmail || undefined,
         parentOutletId,
         logoUsaha: params.currentSettings.logoUsaha,
+        kasirAuthPin: newKasirAuthPin,
         updatedAt: nowIso,
       },
     };

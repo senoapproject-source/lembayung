@@ -18,7 +18,10 @@ import {
   Building2,
   Check,
   Copy,
+  MapPin,
+  Phone,
   Plus,
+  Search,
   Shield,
   Trash2,
   UserPlus,
@@ -49,6 +52,7 @@ export const WebBranchesTeamPage: React.FC<WebBranchesTeamPageProps> = ({
   const isOwner = user.role === 'owner';
 
   const [copiedId, setCopiedId] = useState('');
+  const [branchSearch, setBranchSearch] = useState('');
   const [showAddBranch, setShowAddBranch] = useState(false);
   const [bNamaCabang, setBNamaCabang] = useState('');
   const [bAlamat, setBAlamat] = useState('');
@@ -417,83 +421,208 @@ export const WebBranchesTeamPage: React.FC<WebBranchesTeamPageProps> = ({
 
   return (
     <div className="flex flex-col gap-6">
-      {/* Bagian 1: Manajemen Multi-Cabang (Khusus Owner) */}
-      {isOwner && section !== 'team' && (
-        <div className="bg-white border border-[#e2e0d8] rounded-2xl p-5 flex flex-col gap-4">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <h2 className="font-bold text-base text-[#1f1e1d] flex items-center gap-2">
-                <Building2 size={18} className="text-[#1F7A5A]" /> Daftar Cabang ({branches.length})
-              </h2>
-              <p className="text-xs text-[#6b6a68] mt-0.5">
-                Setiap cabang memiliki ID Outlet sendiri untuk perangkat kasir, dengan katalog menu yang dapat disalin otomatis.
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={() => {
-                setBranchErr('');
-                setShowAddBranch(true);
-              }}
-              className="h-9 px-4 rounded-xl bg-[#1F7A5A] hover:bg-[#15563f] text-white text-xs font-semibold flex items-center gap-1.5"
-            >
-              <Plus size={15} /> Tambah Cabang Baru
-            </button>
-          </div>
+      {/* Bagian 1: Manajemen Multi-Cabang (Khusus Owner) — Tampilan List Informatif + Pencarian */}
+      {isOwner && section !== 'team' && (() => {
+        const q = branchSearch.trim().toLowerCase();
+        const filteredBranches = q
+          ? branches.filter(
+              (b) =>
+                b.namaCabang.toLowerCase().includes(q) ||
+                b.outletId.toLowerCase().includes(q) ||
+                (b.alamatUsaha || '').toLowerCase().includes(q) ||
+                (b.teleponUsaha || '').toLowerCase().includes(q)
+            )
+          : branches;
 
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3.5">
-            {branches.map((b) => {
-              const isCurrent = b.outletId === activeOutletId;
-              return (
-                <div
-                  key={b.outletId}
-                  className={`rounded-2xl border p-4 flex flex-col justify-between gap-3 transition ${
-                    isCurrent
-                      ? 'border-[#1F7A5A] bg-[#e4f1ea]/35'
-                      : 'border-[#e2e0d8] bg-[#faf9f5]/60 hover:bg-white'
-                  }`}
-                >
-                  <div>
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="font-bold text-sm text-[#1f1e1d] truncate">
-                        {b.namaCabang}
-                      </span>
-                      {isCurrent && (
-                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-[#1F7A5A] text-white shrink-0">
-                          Cabang Aktif
-                        </span>
-                      )}
-                    </div>
-                    <div className="text-xs text-[#6b6a68] mt-1 truncate">{b.alamatUsaha}</div>
-                    <div className="mt-2.5 flex items-center gap-1.5">
-                      <span className="text-[11px] font-mono font-bold bg-white border border-[#d6d3c8] px-2.5 py-1 rounded-lg text-[#1F7A5A]">
-                        {b.outletId}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => handleCopyOutlet(b.outletId)}
-                        className="h-7 px-2 rounded-lg border border-[#d6d3c8] bg-white text-[11px] font-medium text-[#4a4947] flex items-center gap-1 hover:bg-[#ece9e0]"
-                      >
-                        {copiedId === b.outletId ? <Check size={12} /> : <Copy size={12} />}
-                        {copiedId === b.outletId ? 'Tersalin' : 'Salin ID'}
-                      </button>
-                    </div>
-                  </div>
-                  {!isCurrent && (
+        const fmtUpdated = (iso?: string) => {
+          if (!iso) return '—';
+          const d = new Date(iso);
+          if (Number.isNaN(d.getTime())) return '—';
+          return d.toLocaleString('id-ID', {
+            day: '2-digit',
+            month: 'short',
+            year: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+          });
+        };
+
+        return (
+          <div className="bg-white border border-[#e2e0d8] rounded-2xl overflow-hidden">
+            <div className="px-5 py-4 border-b border-[#eeece5] flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h2 className="font-bold text-base text-[#1f1e1d] flex items-center gap-2">
+                  <Building2 size={18} className="text-[#1F7A5A]" /> Daftar Cabang ({branches.length})
+                </h2>
+                <p className="text-xs text-[#6b6a68] mt-0.5">
+                  Setiap cabang memiliki ID Outlet dan PIN Otorisasi Mode Kasir masing-masing untuk perangkat kasir.
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2.5">
+                <div className="relative">
+                  <Search
+                    size={14}
+                    className="absolute left-3 top-1/2 -translate-y-1/2 text-[#6b6a68] pointer-events-none"
+                  />
+                  <input
+                    type="text"
+                    value={branchSearch}
+                    onChange={(e) => setBranchSearch(e.target.value)}
+                    placeholder="Cari cabang, ID Outlet, alamat..."
+                    className="h-9 w-64 max-w-full pl-8 pr-7 rounded-xl border border-[#d6d3c8] bg-[#faf9f5] focus:bg-white text-xs text-[#1f1e1d] focus:outline-none focus:border-[#1F7A5A] transition"
+                  />
+                  {branchSearch && (
                     <button
                       type="button"
-                      onClick={() => onSelectBranch(b.outletId)}
-                      className="h-8 rounded-xl border border-[#1F7A5A] text-[#1F7A5A] hover:bg-[#e4f1ea] text-xs font-semibold"
+                      onClick={() => setBranchSearch('')}
+                      aria-label="Hapus pencarian"
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-[#6b6a68] hover:text-[#1f1e1d]"
                     >
-                      Pindah ke Cabang Ini
+                      <X size={13} />
                     </button>
                   )}
                 </div>
-              );
-            })}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setBranchErr('');
+                    setShowAddBranch(true);
+                  }}
+                  className="h-9 px-4 rounded-xl bg-[#1F7A5A] hover:bg-[#15563f] text-white text-xs font-semibold flex items-center gap-1.5 shrink-0"
+                >
+                  <Plus size={15} /> Tambah Cabang Baru
+                </button>
+              </div>
+            </div>
+
+            {q && (
+              <div className="px-5 py-2 bg-[#faf9f5] border-b border-[#eeece5] text-[11px] text-[#6b6a68]">
+                Menampilkan <strong className="text-[#1f1e1d]">{filteredBranches.length}</strong> dari{' '}
+                <strong className="text-[#1f1e1d]">{branches.length}</strong> cabang untuk kata kunci &ldquo;{branchSearch.trim()}&rdquo;
+              </div>
+            )}
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs text-left">
+                <thead className="bg-[#faf9f5] text-[#6b6a68] border-b border-[#eeece5]">
+                  <tr>
+                    <th className="py-3 px-4 font-semibold">Nama Cabang</th>
+                    <th className="py-3 px-3 font-semibold">ID Outlet (Kode Toko)</th>
+                    <th className="py-3 px-3 font-semibold">PIN Otorisasi Kasir</th>
+                    <th className="py-3 px-3 font-semibold">Alamat &amp; Kontak</th>
+                    <th className="py-3 px-3 font-semibold">Pembaruan Terakhir</th>
+                    <th className="py-3 px-4 font-semibold text-right">Aksi</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[#eeece5]">
+                  {filteredBranches.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="py-10 px-4 text-center text-[#6b6a68]">
+                        Tidak ada cabang yang cocok dengan pencarian &ldquo;{branchSearch.trim()}&rdquo;.
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredBranches.map((b) => {
+                      const isCurrent = b.outletId === activeOutletId;
+                      const isPusat = !b.parentOutletId || b.parentOutletId === b.outletId;
+                      return (
+                        <tr
+                          key={b.outletId}
+                          className={isCurrent ? 'bg-[#e4f1ea]/30' : 'hover:bg-[#faf9f5]'}
+                        >
+                          <td className="py-3.5 px-4">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="font-bold text-[#1f1e1d] text-[13px]">
+                                {b.namaCabang}
+                              </span>
+                              <span
+                                className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                                  isPusat
+                                    ? 'bg-[#e0e7ff] text-[#3730a3]'
+                                    : 'bg-[#ece9e0] text-[#4a4947]'
+                                }`}
+                              >
+                                {isPusat ? 'Pusat' : 'Cabang'}
+                              </span>
+                              {isCurrent && (
+                                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-[#1F7A5A] text-white">
+                                  Sedang Aktif
+                                </span>
+                              )}
+                            </div>
+                          </td>
+
+                          <td className="py-3.5 px-3 whitespace-nowrap">
+                            <div className="inline-flex items-center gap-1.5">
+                              <span className="font-mono font-bold text-[#1F7A5A] bg-[#faf9f5] border border-[#d6d3c8] px-2 py-1 rounded-lg">
+                                {b.outletId}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => handleCopyOutlet(b.outletId)}
+                                title="Salin ID Outlet"
+                                className="h-7 px-2 rounded-lg border border-[#d6d3c8] bg-white text-[11px] font-medium text-[#4a4947] inline-flex items-center gap-1 hover:bg-[#ece9e0]"
+                              >
+                                {copiedId === b.outletId ? <Check size={12} className="text-[#1F7A5A]" /> : <Copy size={12} />}
+                                {copiedId === b.outletId ? 'Tersalin' : 'Salin'}
+                              </button>
+                            </div>
+                          </td>
+
+                          <td className="py-3.5 px-3 whitespace-nowrap">
+                            {b.kasirAuthPin ? (
+                              <span className="font-mono font-bold tracking-[0.18em] text-[#1F7A5A] bg-[#f4f9f6] border border-[#c5dfd1] px-2.5 py-1 rounded-lg">
+                                {b.kasirAuthPin}
+                              </span>
+                            ) : (
+                              <span className="text-[11px] text-[#9b1c12] bg-[#fbe4e1] px-2 py-0.5 rounded-full font-medium">
+                                Belum diatur
+                              </span>
+                            )}
+                          </td>
+
+                          <td className="py-3.5 px-3 text-[#4a4947] max-w-[260px]">
+                            <div className="flex items-start gap-1.5">
+                              <MapPin size={12} className="text-[#6b6a68] shrink-0 mt-0.5" />
+                              <span className="line-clamp-2">{b.alamatUsaha || '—'}</span>
+                            </div>
+                            {b.teleponUsaha && (
+                              <div className="flex items-center gap-1.5 text-[11px] text-[#6b6a68] mt-1">
+                                <Phone size={11} className="text-[#1F7A5A] shrink-0" />
+                                <span>{b.teleponUsaha}</span>
+                              </div>
+                            )}
+                          </td>
+
+                          <td className="py-3.5 px-3 text-[#6b6a68] whitespace-nowrap text-[11px]">
+                            {fmtUpdated(b.updatedAt)}
+                          </td>
+
+                          <td className="py-3.5 px-4 text-right whitespace-nowrap">
+                            {isCurrent ? (
+                              <span className="text-[11px] font-semibold text-[#1F7A5A]">
+                                Cabang Aktif
+                              </span>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => onSelectBranch(b.outletId)}
+                                className="h-8 px-3 rounded-xl border border-[#1F7A5A] text-[#1F7A5A] hover:bg-[#e4f1ea] text-xs font-semibold transition"
+                              >
+                                Buka Cabang
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* Bagian 2: Manajemen Tim Usaha Lintas Cabang (Owner -> Manager & Kasir; Manager -> Kasir) */}
       {section !== 'branches' && (
