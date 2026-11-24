@@ -2,7 +2,12 @@ import React, { useEffect, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db, hashPassword } from '../db/database';
 import { generateOutletCode, registerNewBusiness } from '../db/actions';
-import { getInstalledAppVersion, pullAllFromSupabase, syncWithCloud } from '../services/syncService';
+import {
+  getAppEnvironment,
+  getInstalledAppVersion,
+  pullAllFromSupabase,
+  syncWithCloud,
+} from '../services/syncService';
 import {
   confirmOwnerForgotPassword,
   lookupOwnerOutletIdInCloud,
@@ -376,7 +381,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
         emailVerified: true,
         password: regPassword,
         pin: regPin,
-        includeSampleData: regIncludeSample,
+        includeSampleData: getAppEnvironment() === 'testing' ? regIncludeSample : false,
         customOutletId: preparedOutletId,
       });
 
@@ -1037,15 +1042,17 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
                   />
                 </div>
 
-                <label className="flex items-start gap-2 text-xs text-[#4a4947] pt-0.5">
-                  <input
-                    type="checkbox"
-                    checked={regIncludeSample}
-                    onChange={(e) => setRegIncludeSample(e.target.checked)}
-                    className="accent-[#1F7A5A] mt-0.5"
-                  />
-                  <span>Isi contoh bahan, resep, &amp; menu dulu untuk belajar</span>
-                </label>
+                {getAppEnvironment() === 'testing' && (
+                  <label className="flex items-start gap-2 text-xs text-[#4a4947] pt-0.5">
+                    <input
+                      type="checkbox"
+                      checked={regIncludeSample}
+                      onChange={(e) => setRegIncludeSample(e.target.checked)}
+                      className="accent-[#1F7A5A] mt-0.5"
+                    />
+                    <span>Isi contoh bahan, resep, &amp; menu dulu untuk belajar</span>
+                  </label>
+                )}
 
                 {error && (
                   <div className="text-xs font-medium bg-[#fbe4e1] text-[#9b1c12] px-3 py-2 rounded-lg">

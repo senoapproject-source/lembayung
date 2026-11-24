@@ -905,13 +905,17 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
             </div>
 
             <div className="flex justify-between items-center pt-2 border-t border-[#eeece5]">
-              <button
-                type="button"
-                onClick={handleResetDemo}
-                className="text-xs font-semibold text-[#7a4300] flex items-center gap-1.5"
-              >
-                <RotateCcw size={13} /> Bersihkan Data Demo
-              </button>
+              {getAppEnvironment() === 'testing' ? (
+                <button
+                  type="button"
+                  onClick={handleResetDemo}
+                  className="text-xs font-semibold text-[#7a4300] flex items-center gap-1.5"
+                >
+                  <RotateCcw size={13} /> Bersihkan Data Demo
+                </button>
+              ) : (
+                <span />
+              )}
               <button
                 type="button"
                 onClick={onLogout}
