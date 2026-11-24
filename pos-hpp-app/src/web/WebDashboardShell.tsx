@@ -16,6 +16,7 @@ import { RecipesMenuPage } from '../pages/RecipesMenuPage';
 import { IngredientsPage } from '../pages/IngredientsPage';
 import { ExpensesPage } from '../pages/ExpensesPage';
 import { TargetBepPage } from '../pages/TargetBepPage';
+import { AttendanceReportPage } from '../pages/AttendanceReportPage';
 import { SettingsPage } from '../pages/SettingsPage';
 import type { BranchInfo, User } from '../types/models';
 import {
@@ -23,6 +24,7 @@ import {
   BookOpen,
   Building2,
   Calendar,
+  Clock,
   Download,
   LogOut,
   Mail,
@@ -44,6 +46,7 @@ export type WebTab =
   | 'recipes'
   | 'ingredients'
   | 'target'
+  | 'attendance'
   | 'branches'
   | 'settings';
 
@@ -191,6 +194,10 @@ export const WebDashboardShell: React.FC<WebDashboardShellProps> = ({
       title: 'Target Bulanan & Analisis BEP',
       subtitle: 'Hitung titik impas (Break-Even Point) dan progres target laba bulanan',
     },
+    attendance: {
+      title: 'Absensi Tim & Jadwal Shift',
+      subtitle: 'Pantau kehadiran real-time, foto selfie masuk/pulang, koreksi lupa pulang, dan ekspor CSV',
+    },
     branches: {
       title: isOwner ? 'Cabang & Tim' : 'Tim Kasir Cabang',
       subtitle: isOwner
@@ -324,6 +331,15 @@ export const WebDashboardShell: React.FC<WebDashboardShellProps> = ({
             <div className="text-[10px] font-bold uppercase tracking-wider text-[#6b6a68] px-3 mt-3 mb-0.5">
               Manajemen
             </div>
+            <WebNavItem
+              active={activeTab === 'attendance'}
+              onClick={() => {
+                if (isAllBranchesMode) setSelectedBranchKey(activeOutletId);
+                setActiveTab('attendance');
+              }}
+              icon={<Clock size={16} />}
+              label="Absensi Tim"
+            />
             <WebNavItem
               active={activeTab === 'branches'}
               onClick={() => {
@@ -529,6 +545,11 @@ export const WebDashboardShell: React.FC<WebDashboardShellProps> = ({
             {activeTab === 'target' && (
               <div className="bg-white border border-[#e2e0d8] rounded-2xl overflow-hidden">
                 <TargetBepPage />
+              </div>
+            )}
+            {activeTab === 'attendance' && (
+              <div className="bg-white border border-[#e2e0d8] rounded-2xl overflow-hidden">
+                <AttendanceReportPage user={user} />
               </div>
             )}
             {activeTab === 'branches' && (

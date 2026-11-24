@@ -204,6 +204,41 @@ export interface CashierShift {
 export type PriceMethod = 'last' | 'weighted_avg';
 export type RoundingStep = 500 | 1000;
 
+export interface WorkShiftSchedule {
+  id: string;
+  nama: string; // misal: 'Shift 1 Pagi', 'Middle', 'Shift 2 Sore', 'Shift 3 Malam'
+  jamMasuk: string; // HH:mm, misal '08:00'
+  jamPulang: string; // HH:mm, misal '17:00'
+  durasiJam: number; // misal: 9
+  toleransiTelatMenit: number; // default: 10
+}
+
+export type AttendanceStatus = 'hadir' | 'telat' | 'lupa_pulang' | 'dikoreksi';
+
+export interface AttendanceRecord {
+  id: string;
+  userId: string;
+  userNama: string;
+  userRole: UserRole;
+  tanggal: string; // YYYY-MM-DD (tanggal lokal perangkat saat absen masuk)
+  shiftId: string;
+  shiftNama: string;
+  scheduledStart: string; // HH:mm
+  scheduledEnd: string; // HH:mm
+  clockInAt: string; // ISO timestamp waktu perangkat
+  clockOutAt?: string; // ISO timestamp waktu perangkat
+  photoIn?: string; // compressed JPEG data URL (~25-35 KB)
+  photoOut?: string; // compressed JPEG data URL (~25-35 KB)
+  lateMinutes: number; // menit keterlambatan setelah toleransi
+  workMinutes?: number; // durasi kerja total dalam menit
+  status: AttendanceStatus;
+  correctedBy?: string;
+  correctedAt?: string;
+  correctionNote?: string;
+  syncStatus: 'pending' | 'synced';
+  updatedAt: string;
+}
+
 export interface AppSettings {
   id: 'global';
   namaUsaha: string;
@@ -232,6 +267,7 @@ export interface AppSettings {
   ownerEmail?: string; // Email utama Owner pemilik grup bisnis (multi-cabang)
   parentOutletId?: string; // ID outlet pusat jika merupakan cabang baru
   namaCabang?: string; // Nama cabang, misal: "Pusat", "Cabang Sudirman"
+  workShifts?: WorkShiftSchedule[]; // Master jadwal shift kerja (Pagi, Middle, Sore, Malam)
 }
 
 export interface BranchInfo {
@@ -258,7 +294,7 @@ export interface AuditLog {
 
 export interface SyncQueueItem {
   id: string;
-  entity: 'transaction' | 'purchase' | 'expense' | 'master';
+  entity: 'transaction' | 'purchase' | 'expense' | 'master' | 'attendance';
   entityId: string;
   action: 'upsert' | 'void' | 'delete';
   payload: unknown;

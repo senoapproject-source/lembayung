@@ -25,10 +25,10 @@ import {
   validatePin,
 } from '../lib/validation';
 import { CuaninLogo } from '../components/CuaninLogo';
+import { AttendanceKioskModal } from '../components/AttendanceKioskModal';
 import { PasswordInputWithRules } from '../components/PasswordInputWithRules';
-import { CustomSelect } from '../components/CustomSelect';
 import type { User } from '../types/models';
-import { Delete, KeyRound, LogIn, Mail, ShieldCheck, UserPlus } from 'lucide-react';
+import { Clock, Delete, Eye, EyeOff, KeyRound, LogIn, Mail, ShieldCheck, UserPlus } from 'lucide-react';
 
 export const REMEMBERED_USER_KEY = 'pos_hpp_remembered_user_id';
 
@@ -62,6 +62,10 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
   // State PIN Lock
   const [pinInput, setPinInput] = useState('');
   const [newPinSetup, setNewPinSetup] = useState('');
+  const [showAttendanceKiosk, setShowAttendanceKiosk] = useState(false);
+  const [pendingPrivilegedUser, setPendingPrivilegedUser] = useState<User | null>(null);
+  const [privilegedPassInput, setPrivilegedPassInput] = useState('');
+  const [showPrivilegedPass, setShowPrivilegedPass] = useState(false);
 
   // State Lupa PIN (Verifikasi Password -> Buat PIN Baru)
   const [forgotPassInput, setForgotPassInput] = useState('');
@@ -148,25 +152,50 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
   };
 
   // ============================================================================
-  // 1. HANDLER NUMPAD PIN (KETIKA PERANGKAT SUDAH LOGIN)
+  // 1. HANDLER NUMPAD PIN (TANPA DROPDOWN: DETEKSI ROLE OTOMATIS DARI PIN)
   // ============================================================================
-  const expectedPinLength = rememberedUser?.pin?.length || 6;
+  const anyUserHasPin = activeUsers.some((u) => Boolean(u.pin));
 
   const handleDigitPress = (digit: string) => {
-    if (!rememberedUser?.pin) return;
     setError('');
     if (pinInput.length >= 6) return;
     const nextPin = pinInput + digit;
     setPinInput(nextPin);
 
-    if (nextPin.length === rememberedUser.pin.length) {
-      if (nextPin === rememberedUser.pin) {
-        completeLogin(rememberedUser);
-      } else {
-        setError('PIN salah. Silakan coba lagi.');
+    if (nextPin.length === 6) {
+      const matched = activeUsers.find((u) => String(u.pin || '').trim() === nextPin);
+      if (!matched) {
+        setError('PIN tidak dikenali. Periksa kembali 6 angka PIN Anda.');
         setTimeout(() => setPinInput(''), 350);
+        return;
       }
+
+      if (matched.role === 'owner' || matched.role === 'manager') {
+        // Owner & Manager wajib konfirmasi kata sandi (100% offline) agar aman walau PIN sempat diintip
+        setPendingPrivilegedUser(matched);
+        setPrivilegedPassInput('');
+        setShowPrivilegedPass(false);
+        setPinInput('');
+        return;
+      }
+
+      completeLogin(matched);
     }
+  };
+
+  const handlePrivilegedPasswordSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!pendingPrivilegedUser) return;
+    setError('');
+    const hashed = await hashPassword(privilegedPassInput);
+    if (hashed !== pendingPrivilegedUser.passwordHash) {
+      setError('Kata sandi salah. Silakan coba lagi.');
+      return;
+    }
+    const target = pendingPrivilegedUser;
+    setPendingPrivilegedUser(null);
+    setPrivilegedPassInput('');
+    completeLogin(target);
   };
 
   const handleBackspace = () => {
@@ -545,48 +574,88 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
         </div>
 
         {/* ====================================================================
-            KONDISI 1: PERANGKAT SUDAH LOGIN -> DROPDOWN PILIH PENGGUNA + PIN 6 ANGKA
+            KONDISI 1: PERANGKAT SUDAH LOGIN -> NUMPAD PIN TANPA DROPDOWN + TOMBOL ABSEN
            ==================================================================== */}
         {screenMode === 'pin_lock' && rememberedUser && (
           <div className="bg-white border border-[#e2e0d8] rounded-2xl p-6 flex flex-col items-center gap-4 shadow-xs">
-            {activeUsers.length > 1 ? (
-              <div className="w-full flex flex-col gap-1.5">
-                <label className="text-xs font-semibold text-[#4a4947]">Pilih Pengguna</label>
-                <CustomSelect
-                  value={rememberedUser.id}
-                  onChange={(id) => {
-                    setSelectedUserId(id);
-                    setPinInput('');
-                    setNewPinSetup('');
-                    setError('');
-                  }}
-                  options={activeUsers.map((u) => ({
-                    value: u.id,
-                    label: u.nama,
-                  }))}
-                />
-              </div>
-            ) : (
-              <div className="flex flex-col items-center text-center gap-1">
-                <div className="w-12 h-12 rounded-full bg-[#e4f1ea] text-[#1F7A5A] flex items-center justify-center font-bold text-lg">
-                  {rememberedUser.nama.slice(0, 1).toUpperCase()}
+            {pendingPrivilegedUser ? (
+              <form
+                onSubmit={handlePrivilegedPasswordSubmit}
+                className="w-full flex flex-col gap-3"
+              >
+                <div className="flex flex-col items-center text-center gap-1">
+                  <div className="w-11 h-11 rounded-full bg-[#e4f1ea] text-[#1F7A5A] flex items-center justify-center font-bold text-base">
+                    {pendingPrivilegedUser.nama.slice(0, 1).toUpperCase()}
+                  </div>
+                  <div className="text-sm font-bold text-[#1f1e1d] mt-1">
+                    Halo, {pendingPrivilegedUser.nama}
+                  </div>
+                  <div className="text-xs text-[#6b6a68]">
+                    Masukkan kata sandi akun{' '}
+                    <strong>{pendingPrivilegedUser.role === 'owner' ? 'Owner' : 'Manager'}</strong>{' '}
+                    untuk melanjutkan (100% offline).
+                  </div>
                 </div>
-                <div className="text-base font-bold text-[#1f1e1d] mt-1">
-                  Halo, {rememberedUser.nama}
-                </div>
-                <div className="text-xs text-[#6b6a68]">
-                  {settings?.namaUsaha || 'Lembayung'}
-                </div>
-              </div>
-            )}
 
-            {rememberedUser.pin ? (
+                <div className="relative">
+                  <input
+                    type={showPrivilegedPass ? 'text' : 'password'}
+                    value={privilegedPassInput}
+                    onChange={(e) => setPrivilegedPassInput(e.target.value)}
+                    placeholder="Masukkan kata sandi"
+                    className="w-full h-11 border border-[#d6d3c8] rounded-[10px] pl-3.5 pr-10 text-sm focus:outline-none focus:border-[#1F7A5A]"
+                    autoFocus
+                    required
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPrivilegedPass((v) => !v)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-[#6b6a68]"
+                  >
+                    {showPrivilegedPass ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
+
+                {error && (
+                  <div className="text-xs font-medium bg-[#fbe4e1] text-[#9b1c12] px-3 py-1.5 rounded-lg text-center">
+                    {error}
+                  </div>
+                )}
+
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPendingPrivilegedUser(null);
+                      setPrivilegedPassInput('');
+                      setError('');
+                    }}
+                    className="h-11 px-4 rounded-[10px] border border-[#d6d3c8] text-xs font-semibold text-[#4a4947]"
+                  >
+                    Batal
+                  </button>
+                  <button
+                    type="submit"
+                    className="flex-1 h-11 rounded-[10px] bg-[#1F7A5A] hover:bg-[#15563f] text-white font-semibold text-sm"
+                  >
+                    Masuk
+                  </button>
+                </div>
+              </form>
+            ) : anyUserHasPin ? (
               <>
-                <div className="text-xs font-medium text-[#4a4947]">Masukkan PIN Anda</div>
+                <div className="flex flex-col items-center text-center gap-0.5">
+                  <div className="text-sm font-bold text-[#1f1e1d]">
+                    {settings?.namaUsaha || 'Lembayung'}
+                  </div>
+                  <div className="text-xs text-[#6b6a68]">
+                    Masukkan 6 angka PIN Anda
+                  </div>
+                </div>
 
                 {/* Indikator Titik PIN */}
                 <div className="flex items-center justify-center gap-3.5 my-1">
-                  {Array.from({ length: expectedPinLength }).map((_, idx) => {
+                  {Array.from({ length: 6 }).map((_, idx) => {
                     const filled = idx < pinInput.length;
                     return (
                       <div
@@ -635,6 +704,15 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
                     <Delete size={20} />
                   </button>
                 </div>
+
+                {/* Tombol Cepat Absen Masuk / Pulang (Bisa Dipakai Sebelum Buka Kasir) */}
+                <button
+                  type="button"
+                  onClick={() => setShowAttendanceKiosk(true)}
+                  className="w-full h-11 rounded-xl bg-[#e4f1ea] hover:bg-[#d5eadf] border border-[#1F7A5A]/30 text-[#1F7A5A] font-semibold text-xs flex items-center justify-center gap-2 transition mt-1"
+                >
+                  <Clock size={15} /> Absen Masuk / Pulang (Selfie)
+                </button>
               </>
             ) : (
               /* Jika akun belum punya PIN, minta buat PIN 6 digit dulu */
@@ -1349,6 +1427,10 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
           Lembayung v{getInstalledAppVersion()}
         </div>
       </div>
+
+      {showAttendanceKiosk && (
+        <AttendanceKioskModal onClose={() => setShowAttendanceKiosk(false)} />
+      )}
     </div>
   );
 };

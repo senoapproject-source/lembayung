@@ -126,6 +126,11 @@ export const CloseShiftModal: React.FC<CloseShiftModalProps> = ({
 }) => {
   const transactions = useLiveQuery(() => db.transactions.toArray()) ?? [];
   const expenses = useLiveQuery(() => db.expenses.toArray()) ?? [];
+  const savedOrders = useLiveQuery(() => db.savedOrders.toArray()) ?? [];
+  const openBillTotal = savedOrders.reduce(
+    (sum, o) => sum + o.items.reduce((s, i) => s + i.hargaJual * i.jumlah, 0),
+    0
+  );
 
   const [uangFisikStr, setUangFisikStr] = useState('');
   const [catatan, setCatatan] = useState('');
@@ -227,6 +232,15 @@ export const CloseShiftModal: React.FC<CloseShiftModalProps> = ({
             </div>
           )}
         </div>
+
+        {/* Info Estafet Open Bill (Disimpan) ke Shift Berikutnya */}
+        {savedOrders.length > 0 && (
+          <div className="bg-[#fbf3e6] border border-[#f0dcb8] rounded-xl px-3.5 py-2.5 text-xs text-[#7a4300]">
+            <strong>{savedOrders.length} Open Bill (Disimpan)</strong> senilai{' '}
+            <strong>{formatRupiah(openBillTotal)}</strong> sedang aktif dan akan{' '}
+            <strong>otomatis diteruskan ke Shift berikutnya</strong> (tidak perlu ditagih sekarang).
+          </div>
+        )}
 
         {/* Daftar Pengeluaran Kasir Selama Shift (Read-Only) */}
         {liveStats.shiftExps.length > 0 && (

@@ -12,6 +12,7 @@ import type {
   Expense,
   MonthlyTarget,
   CashierShift,
+  AttendanceRecord,
   AppSettings,
   AuditLog,
   SyncQueueItem,
@@ -30,6 +31,7 @@ export class PosHppDatabase extends Dexie {
   expenses!: EntityTable<Expense, 'id'>;
   monthlyTargets!: EntityTable<MonthlyTarget, 'bulan'>;
   cashierShifts!: EntityTable<CashierShift, 'id'>;
+  attendances!: EntityTable<AttendanceRecord, 'id'>;
   settings!: EntityTable<AppSettings, 'id'>;
   auditLogs!: EntityTable<AuditLog, 'id'>;
   syncQueue!: EntityTable<SyncQueueItem, 'id'>;
@@ -82,6 +84,24 @@ export class PosHppDatabase extends Dexie {
       expenses: 'id, tanggal, categoryId, sumber, purchaseId, dibatalkan, syncStatus',
       monthlyTargets: 'bulan',
       cashierShifts: 'id, kasirId, status, waktuBuka, waktuTutup',
+      settings: 'id',
+      auditLogs: 'id, userId, waktu, objek',
+      syncQueue: 'id, entity, entityId, createdAt',
+    });
+    this.version(5).stores({
+      users: 'id, username, email, role, active',
+      ingredients: 'id, nama, active',
+      purchases: 'id, ingredientId, tanggal, dibatalkan',
+      recipes: 'id, nama, isSubRecipe',
+      menus: 'id, recipeId, kategori, active',
+      menuHppHistory: 'id, menuId, berlakuSejak',
+      transactions: 'id, nomorStruk, waktu, kasirId, status, syncStatus',
+      savedOrders: 'id, waktuSimpan, kasirId',
+      expenseCategories: 'id, nama, sudahMasukHpp',
+      expenses: 'id, tanggal, categoryId, sumber, purchaseId, dibatalkan, syncStatus',
+      monthlyTargets: 'bulan',
+      cashierShifts: 'id, kasirId, status, waktuBuka, waktuTutup',
+      attendances: 'id, userId, tanggal, status, clockInAt, clockOutAt, syncStatus',
       settings: 'id',
       auditLogs: 'id, userId, waktu, objek',
       syncQueue: 'id, entity, entityId, createdAt',

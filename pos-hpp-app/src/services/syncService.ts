@@ -4,6 +4,7 @@ import { CapacitorUpdater } from '@capgo/capacitor-updater';
 import { db } from '../db/database';
 import type {
   AppSettings,
+  AttendanceRecord,
   Expense,
   ExpenseCategory,
   Ingredient,
@@ -16,6 +17,7 @@ import type {
   SavedOrder,
   Transaction,
   User,
+  WorkShiftSchedule,
 } from '../types/models';
 
 let cachedClient: SupabaseClient | null = null;
@@ -762,6 +764,51 @@ async function pushAllLocalToSupabaseInternal(includeUsers: boolean): Promise<{
           if (!error) totalSynced += shifts.length;
         });
     }
+
+    // 14. Tabel attendances (absensi karyawan + foto selfie terkompresi — abaikan diam-diam jika tabel belum dibuat di DB)
+    const attendances = await db.attendances.toArray();
+    if (attendances.length > 0) {
+      await client
+        .from('attendances')
+        .upsert(
+          attendances.map((a) => ({
+            outlet_id: outletId,
+            id: a.id,
+            user_id: a.userId,
+            user_nama: a.userNama,
+            user_role: a.userRole,
+            tanggal: a.tanggal,
+            shift_id: a.shiftId,
+            shift_nama: a.shiftNama,
+            scheduled_start: a.scheduledStart,
+            scheduled_end: a.scheduledEnd,
+            clock_in_at: a.clockInAt,
+            clock_out_at: a.clockOutAt || null,
+            photo_in: a.photoIn || null,
+            photo_out: a.photoOut || null,
+            late_minutes: a.lateMinutes ?? 0,
+            work_minutes: a.workMinutes ?? null,
+            status: a.status,
+            corrected_by: a.correctedBy || null,
+            corrected_at: a.correctedAt || null,
+            correction_note: a.correctionNote || null,
+            updated_at: a.updatedAt || nowIso,
+          })),
+          { onConflict: 'outlet_id,id' }
+        )
+        .then(({ error }) => {
+          if (!error) totalSynced += attendances.length;
+        });
+    }
+
+    // Simpan master jadwal shift kerja jika kolom work_shifts tersedia di outlets
+    if (settings?.workShifts && settings.workShifts.length > 0) {
+      await client
+        .from('outlets')
+        .update({ work_shifts: settings.workShifts, updated_at: nowIso })
+        .eq('outlet_id', outletId)
+        .then(() => {});
+    }
   } catch (err) {
     return {
       success: false,
@@ -770,9 +817,10 @@ async function pushAllLocalToSupabaseInternal(includeUsers: boolean): Promise<{
     };
   }
 
-  await db.transaction('rw', [db.transactions, db.expenses, db.syncQueue], async () => {
+  await db.transaction('rw', [db.transactions, db.expenses, db.attendances, db.syncQueue], async () => {
     await db.transactions.toCollection().modify({ syncStatus: 'synced' });
     await db.expenses.toCollection().modify({ syncStatus: 'synced' });
+    await db.attendances.toCollection().modify({ syncStatus: 'synced' });
     await db.syncQueue.clear();
   });
 
@@ -847,6 +895,7 @@ export async function pullAllFromSupabase(overrideOutletId?: string): Promise<{
     expsRes,
     tgtsRes,
     shiftsRes,
+    attendancesRes,
   ] = await Promise.all([
     client.from('users').select('*').eq('outlet_id', targetOutletId),
     client.from('expense_categories').select('*').eq('outlet_id', targetOutletId),
@@ -860,6 +909,7 @@ export async function pullAllFromSupabase(overrideOutletId?: string): Promise<{
     client.from('expenses').select('*').eq('outlet_id', targetOutletId),
     client.from('monthly_targets').select('*').eq('outlet_id', targetOutletId),
     client.from('cashier_shifts').select('*').eq('outlet_id', targetOutletId),
+    client.from('attendances').select('*').eq('outlet_id', targetOutletId),
   ]);
 
   let totalPulled = 1;
@@ -889,6 +939,9 @@ export async function pullAllFromSupabase(overrideOutletId?: string): Promise<{
     lastBackupAt: outletRow.updated_at,
     cloudSyncMode: 'supabase',
     outletId: targetOutletId,
+    workShifts: Array.isArray(outletRow.work_shifts)
+      ? (outletRow.work_shifts as WorkShiftSchedule[])
+      : settings?.workShifts,
   };
 
   const mappedUsers: User[] = (usersRes.data || []).map((u) => ({
@@ -1068,6 +1121,36 @@ export async function pullAllFromSupabase(overrideOutletId?: string): Promise<{
         }))
       : [];
 
+  const mappedAttendances: AttendanceRecord[] =
+    attendancesRes && !attendancesRes.error && Array.isArray(attendancesRes.data)
+      ? attendancesRes.data.map((a) => ({
+          id: a.id,
+          userId: a.user_id,
+          userNama: a.user_nama,
+          userRole: a.user_role || 'kasir',
+          tanggal: a.tanggal,
+          shiftId: a.shift_id,
+          shiftNama: a.shift_nama,
+          scheduledStart: a.scheduled_start,
+          scheduledEnd: a.scheduled_end,
+          clockInAt: a.clock_in_at,
+          clockOutAt: a.clock_out_at || undefined,
+          photoIn: a.photo_in || undefined,
+          photoOut: a.photo_out || undefined,
+          lateMinutes: Number(a.late_minutes) || 0,
+          workMinutes:
+            a.work_minutes !== null && a.work_minutes !== undefined
+              ? Number(a.work_minutes)
+              : undefined,
+          status: a.status || 'hadir',
+          correctedBy: a.corrected_by || undefined,
+          correctedAt: a.corrected_at || undefined,
+          correctionNote: a.correction_note || undefined,
+          syncStatus: 'synced',
+          updatedAt: a.updated_at || a.clock_in_at,
+        }))
+      : [];
+
   totalPulled +=
     mappedUsers.length +
     mappedCats.length +
@@ -1079,7 +1162,8 @@ export async function pullAllFromSupabase(overrideOutletId?: string): Promise<{
     mappedTxs.length +
     mappedSaved.length +
     mappedExpenses.length +
-    mappedTargets.length;
+    mappedTargets.length +
+    mappedAttendances.length;
 
   // Ambil snapshot lokal sebelum menimpa DB agar perubahan baru dari device lain (penjualan/void/pengeluaran/pembelian/menu/user)
   // 100% tetap memicu notifikasi perangkat meskipun WebSocket Realtime sempat terputus di Android!
@@ -1118,6 +1202,7 @@ export async function pullAllFromSupabase(overrideOutletId?: string): Promise<{
       db.savedOrders,
       db.monthlyTargets,
       db.cashierShifts,
+      db.attendances,
     ],
     async () => {
       if (overrideOutletId) {
@@ -1134,6 +1219,7 @@ export async function pullAllFromSupabase(overrideOutletId?: string): Promise<{
           db.savedOrders.clear(),
           db.monthlyTargets.clear(),
           db.cashierShifts.clear(),
+          db.attendances.clear(),
         ]);
       }
 
@@ -1157,6 +1243,7 @@ export async function pullAllFromSupabase(overrideOutletId?: string): Promise<{
       if (mappedExpenses.length) await db.expenses.bulkPut(mappedExpenses);
       if (mappedTargets.length) await db.monthlyTargets.bulkPut(mappedTargets);
       if (mappedShifts.length) await db.cashierShifts.bulkPut(mappedShifts);
+      if (mappedAttendances.length) await db.attendances.bulkPut(mappedAttendances);
     }
   );
 

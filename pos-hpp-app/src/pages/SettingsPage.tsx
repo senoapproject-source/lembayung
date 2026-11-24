@@ -25,6 +25,7 @@ import {
   setNotificationsEnabled,
 } from '../services/notificationService';
 import { validatePassword, validatePin } from '../lib/validation';
+import { findDuplicatePinOwner, generateUniqueSixDigitPin } from '../services/attendanceService';
 import { compressLogoFileToDataUrl } from '../lib/receipt';
 import { CustomSelect } from '../components/CustomSelect';
 import type { AppSettings, RoundingStep, User } from '../types/models';
@@ -207,7 +208,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
     setUEmail('');
     setURole('kasir');
     setUPassword('');
-    setUPin('');
+    setUPin(generateUniqueSixDigitPin(users));
     setUCanDiscount(settings.defaultKasirDiscount);
     setUCanRecordExp(settings.defaultKasirRecordExpense);
     setUActive(true);
@@ -256,6 +257,13 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
     const pinErr = validatePin(cleanPin);
     if (pinErr) {
       alert(pinErr);
+      return;
+    }
+    const dupPinOwner = findDuplicatePinOwner(cleanPin, allUsers, editingUser?.id);
+    if (dupPinOwner) {
+      alert(
+        `PIN "${cleanPin}" sudah dipakai oleh ${dupPinOwner.nama}. Setiap akun wajib memiliki PIN 6 angka yang unik.`
+      );
       return;
     }
 

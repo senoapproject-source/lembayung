@@ -32,7 +32,9 @@ import { WebLoginPage } from './web/WebLoginPage';
 import { WebDashboardShell } from './web/WebDashboardShell';
 import { CuaninLogo } from './components/CuaninLogo';
 import { LembayungSplash } from './components/LembayungSplash';
+import { AttendanceKioskModal } from './components/AttendanceKioskModal';
 import { UpdatePromptModal } from './components/UpdatePromptModal';
+import { MAX_OPEN_ATTENDANCE_HOURS } from './services/attendanceService';
 import { CloseShiftModal, OpenShiftScreen } from './components/CashierShiftModals';
 import type { User } from './types/models';
 import { LoginPage, REMEMBERED_USER_KEY } from './pages/LoginPage';
@@ -43,10 +45,12 @@ import { ReportsPage } from './pages/ReportsPage';
 import { ExpensesPage } from './pages/ExpensesPage';
 import { HistoryPage } from './pages/HistoryPage';
 import { TargetBepPage } from './pages/TargetBepPage';
+import { AttendanceReportPage } from './pages/AttendanceReportPage';
 import { SettingsPage } from './pages/SettingsPage';
 import {
   BarChart3,
   BookOpen,
+  Clock,
   LogOut,
   Moon,
   Package,
@@ -68,6 +72,7 @@ type ActiveView =
   | 'pengeluaran'
   | 'riwayat'
   | 'target'
+  | 'absensi'
   | 'pengaturan';
 
 const SESSION_KEY = 'pos_hpp_active_user_id';
@@ -95,6 +100,7 @@ export function App() {
   const [updateDismissed, setUpdateDismissed] = useState<boolean>(false);
   const [backExitToast, setBackExitToast] = useState<boolean>(false);
   const [showCloseShiftModal, setShowCloseShiftModal] = useState<boolean>(false);
+  const [showAttendanceKiosk, setShowAttendanceKiosk] = useState<boolean>(false);
   const [showSplash, setShowSplash] = useState<boolean>(() => {
     if (Capacitor.isNativePlatform()) return true;
     return sessionStorage.getItem('lembayung_splash_done') !== '1';
@@ -125,6 +131,23 @@ export function App() {
         .filter((s) => s.status === 'open')
         .toArray();
       return openShifts[0];
+    },
+    [currentUserId]
+  );
+  const activeUserAttendance = useLiveQuery(
+    async () => {
+      if (!currentUserId) return null;
+      const open = await db.attendances
+        .where('userId')
+        .equals(currentUserId)
+        .filter((a) => !a.clockOutAt && a.status !== 'lupa_pulang')
+        .toArray();
+      if (open.length === 0) return null;
+      open.sort((a, b) => Date.parse(b.clockInAt) - Date.parse(a.clockInAt));
+      const latest = open[0];
+      const elapsedHrs = (Date.now() - Date.parse(latest.clockInAt)) / (1000 * 60 * 60);
+      if (elapsedHrs >= MAX_OPEN_ATTENDANCE_HOURS) return null;
+      return latest;
     },
     [currentUserId]
   );
@@ -480,6 +503,10 @@ export function App() {
         </div>
       )}
 
+      {showAttendanceKiosk && (
+        <AttendanceKioskModal onClose={() => setShowAttendanceKiosk(false)} />
+      )}
+
       {updateInfo?.hasUpdate && !updateDismissed && (
           <UpdatePromptModal
             info={updateInfo}
@@ -497,6 +524,22 @@ export function App() {
 
   const isOwner = currentUser.role === 'owner';
   const isManagerOrOwner = currentUser.role === 'owner' || currentUser.role === 'manager';
+
+  // Khusus Kasir: wajib Absen Masuk (Selfie) dulu sebelum Buka Kasir
+  if (!isManagerOrOwner && activeUserAttendance === null) {
+    return (
+      <>
+        {splashOverlay}
+        <div className="min-h-[100dvh] bg-[#faf9f5] safe-frame">
+          <AttendanceKioskModal
+            preselectedUser={currentUser}
+            mandatoryClockIn
+            onSwitchUser={handleLockToPin}
+          />
+        </div>
+      </>
+    );
+  }
 
   // Khusus Kasir: wajib Buka Kasir (hitung & input uang modal awal) sebelum masuk ke halaman Kasir
   if (!isManagerOrOwner && !activeCashierShift) {
@@ -525,6 +568,7 @@ export function App() {
     safeView === 'pengeluaran' ||
     safeView === 'riwayat' ||
     safeView === 'target' ||
+    safeView === 'absensi' ||
     safeView === 'pengaturan';
 
   const syncStatusBadge = isOnline ? (
@@ -635,6 +679,14 @@ export function App() {
                 label="Pengeluaran"
               />
             )}
+            {isManagerOrOwner && (
+              <SidebarItem
+                active={safeView === 'absensi'}
+                onClick={() => setActiveView('absensi')}
+                icon={<Clock size={17} />}
+                label="Absensi Tim"
+              />
+            )}
             {isOwner && (
               <SidebarItem
                 active={safeView === 'pengaturan'}
@@ -646,8 +698,15 @@ export function App() {
           </nav>
         </div>
 
-        {/* Footer Sidebar (Status Cloud, Tutup Kasir, User, Dark Mode, Kunci PIN) */}
+        {/* Footer Sidebar (Status Cloud, Absen, Tutup Kasir, User, Dark Mode, Kunci PIN) */}
         <div className="p-3 border-t border-[#e2e0d8] flex flex-col gap-2 bg-[#faf9f5]">
+          <button
+            type="button"
+            onClick={() => setShowAttendanceKiosk(true)}
+            className="w-full h-9 rounded-xl bg-[#e4f1ea] hover:bg-[#d5eadf] text-[#1F7A5A] font-semibold text-xs flex items-center justify-center gap-1.5 transition"
+          >
+            <Clock size={13} /> Absen Karyawan
+          </button>
           {!isOwner && activeCashierShift && (
             <button
               type="button"
@@ -736,6 +795,14 @@ export function App() {
           )}
           <button
             type="button"
+            onClick={() => setShowAttendanceKiosk(true)}
+            title="Absen Masuk / Pulang Karyawan"
+            className="px-2 py-1 rounded-full bg-[#e4f1ea] text-[#1F7A5A] font-semibold text-[11px] flex items-center gap-1 shrink-0 whitespace-nowrap"
+          >
+            <Clock size={12} /> Absen
+          </button>
+          <button
+            type="button"
             onClick={toggleDarkMode}
             title={darkMode ? 'Ubah ke Mode Terang' : 'Ubah ke Mode Gelap'}
             className="p-1.5 rounded-md text-[#4a4947] hover:bg-[#ece9e0] transition"
@@ -778,11 +845,12 @@ export function App() {
         )}
         {safeView === 'resep' && isOwner && <RecipesMenuPage user={currentUser} />}
         {safeView === 'bahan' && isOwner && <IngredientsPage user={currentUser} />}
-        {safeView === 'laporan' && isOwner && (
+        {safeView === 'laporan' && isManagerOrOwner && (
           <ReportsPage
             onOpenExpenses={() => setActiveView('pengeluaran')}
             onOpenHistory={() => setActiveView('riwayat')}
             onOpenTargetBep={() => setActiveView('target')}
+            onOpenAttendance={() => setActiveView('absensi')}
           />
         )}
         {safeView === 'pengeluaran' && (isOwner || currentUser.canRecordExpense) && (
@@ -801,6 +869,9 @@ export function App() {
         )}
         {safeView === 'target' && isOwner && (
           <TargetBepPage onBack={() => setActiveView('laporan')} />
+        )}
+        {safeView === 'absensi' && isManagerOrOwner && (
+          <AttendanceReportPage user={currentUser} onBack={() => setActiveView('laporan')} />
         )}
         {safeView === 'pengaturan' && isOwner && (
           <SettingsPage
@@ -887,6 +958,10 @@ export function App() {
         <div className="fixed bottom-20 left-1/2 -translate-x-1/2 z-50 bg-[#18181B]/95 text-white text-xs font-medium px-4 py-2 rounded-full shadow-lg pointer-events-none whitespace-nowrap">
           Tekan kembali sekali lagi untuk keluar
         </div>
+      )}
+
+      {showAttendanceKiosk && (
+        <AttendanceKioskModal onClose={() => setShowAttendanceKiosk(false)} />
       )}
 
       {updateInfo?.hasUpdate && !updateDismissed && (

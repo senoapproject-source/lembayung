@@ -2,10 +2,12 @@ import React, { useMemo, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../db/database';
 import {
+  addAuditLog,
   createPosTransaction,
   deleteHoldOrder,
   saveHoldOrder,
 } from '../db/actions';
+import { sendDeviceNotification } from '../services/notificationService';
 import { formatJam, formatRibuanInput, formatRupiah, stripNonDigits } from '../lib/calculations';
 import { ReceiptModal } from '../components/ReceiptModal';
 import type { MenuItem, PaymentMethod, SavedOrder, Transaction, User } from '../types/models';
@@ -38,6 +40,10 @@ export const PosPage: React.FC<PosPageProps> = ({ user, onOpenHistory }) => {
     useLiveQuery(() => db.savedOrders.orderBy('waktuSimpan').reverse().toArray()) ?? [];
 
   const [search, setSearch] = useState('');
+  const [deleteOrderTarget, setDeleteOrderTarget] = useState<SavedOrder | null>(null);
+  const [deleteOrderPin, setDeleteOrderPin] = useState('');
+  const [deleteOrderReason, setDeleteOrderReason] = useState('');
+  const [deleteOrderErr, setDeleteOrderErr] = useState('');
   const [selectedKategori, setSelectedKategori] = useState('Semua');
   const [cart, setCart] = useState<CartItem[]>([]);
 
@@ -761,9 +767,10 @@ export const PosPage: React.FC<PosPageProps> = ({ user, onOpenHistory }) => {
                         <button
                           type="button"
                           onClick={() => {
-                            if (confirm(`Hapus orderan tersimpan "${ord.labelMejaPelanggan}"?`)) {
-                              deleteHoldOrder(ord.id);
-                            }
+                            setDeleteOrderTarget(ord);
+                            setDeleteOrderPin('');
+                            setDeleteOrderReason('');
+                            setDeleteOrderErr('');
                           }}
                           className="h-9 px-2.5 rounded-lg border border-[#d6d3c8] text-[#9b1c12] flex items-center justify-center"
                         >
@@ -776,6 +783,111 @@ export const PosPage: React.FC<PosPageProps> = ({ user, onOpenHistory }) => {
               </div>
             )}
           </div>
+        </div>
+      )}
+
+      {/* Modal Otorisasi PIN + Wajib Alasan untuk Hapus Open Bill (Disimpan) */}
+      {deleteOrderTarget && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+          <form
+            onSubmit={async (e) => {
+              e.preventDefault();
+              setDeleteOrderErr('');
+              const cleanPin = deleteOrderPin.trim();
+              const cleanReason = deleteOrderReason.trim();
+              if (!/^\d{6}$/.test(cleanPin)) {
+                setDeleteOrderErr('Masukkan 6 angka PIN Anda.');
+                return;
+              }
+              if (cleanReason.length < 3) {
+                setDeleteOrderErr('Alasan pembatalan wajib diisi (min. 3 karakter).');
+                return;
+              }
+              const allUsers = await db.users.toArray();
+              const actor = allUsers.find(
+                (u) => u.active && String(u.pin || '').trim() === cleanPin
+              );
+              if (!actor) {
+                setDeleteOrderErr('PIN tidak dikenali. Periksa kembali 6 angka PIN Anda.');
+                return;
+              }
+              const target = deleteOrderTarget;
+              const targetTotal = target.items.reduce((s, i) => s + i.hargaJual * i.jumlah, 0);
+              await deleteHoldOrder(target.id);
+              await addAuditLog(
+                actor,
+                'HAPUS_OPEN_BILL',
+                target.labelMejaPelanggan,
+                `Total ${formatRupiah(targetTotal)} · Alasan: ${cleanReason}`
+              );
+              sendDeviceNotification({
+                title: `Open Bill Dihapus · ${target.labelMejaPelanggan}`,
+                body: `Dihapus oleh ${actor.nama} (${formatRupiah(targetTotal)}) · Alasan: ${cleanReason}`,
+                dedupKey: `del-hold-${target.id}`,
+                broadcastFcm: true,
+              });
+              setDeleteOrderTarget(null);
+            }}
+            className="bg-white w-full max-w-[390px] rounded-2xl p-5 flex flex-col gap-3.5 shadow-xl border border-[#e2e0d8]"
+          >
+            <div className="flex justify-between items-center">
+              <div>
+                <div className="text-base font-bold text-[#9b1c12]">Hapus Pesanan Tersimpan</div>
+                <div className="text-xs text-[#6b6a68]">{deleteOrderTarget.labelMejaPelanggan}</div>
+              </div>
+              <button type="button" onClick={() => setDeleteOrderTarget(null)}>
+                <X size={20} className="text-[#6b6a68]" />
+              </button>
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-[#4a4947] mb-1">
+                Alasan Pembatalan *
+              </label>
+              <input
+                type="text"
+                value={deleteOrderReason}
+                onChange={(e) => setDeleteOrderReason(e.target.value)}
+                placeholder="Misal: Pelanggan batal pesan / salah input meja"
+                className="w-full h-10 border border-[#d6d3c8] rounded-[10px] px-3 text-sm"
+                required
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-[#4a4947] mb-1">
+                Masukkan PIN Anda (6 Angka) *
+              </label>
+              <input
+                type="password"
+                inputMode="numeric"
+                maxLength={6}
+                value={deleteOrderPin}
+                onChange={(e) => setDeleteOrderPin(e.target.value.replace(/\D/g, ''))}
+                placeholder="••••••"
+                className="w-full h-11 border border-[#d6d3c8] rounded-[10px] px-3 text-center text-lg font-bold tracking-[0.35em]"
+                required
+              />
+            </div>
+            {deleteOrderErr && (
+              <div className="text-xs font-medium bg-[#fbe4e1] text-[#9b1c12] px-3 py-2 rounded-lg">
+                {deleteOrderErr}
+              </div>
+            )}
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setDeleteOrderTarget(null)}
+                className="flex-1 h-10 rounded-[10px] border border-[#d6d3c8] text-xs font-semibold text-[#4a4947]"
+              >
+                Batal
+              </button>
+              <button
+                type="submit"
+                className="flex-1 h-10 rounded-[10px] bg-[#9b1c12] hover:bg-[#7f1d1d] text-white text-xs font-semibold"
+              >
+                Konfirmasi Hapus
+              </button>
+            </div>
+          </form>
         </div>
       )}
 

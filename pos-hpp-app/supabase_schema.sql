@@ -357,7 +357,41 @@ CREATE POLICY "Allow public read and upload on cuanin-receipts"
   WITH CHECK (bucket_id = 'cuanin-receipts');
 
 -- ============================================================================
--- PERMISSIONS & ROW LEVEL SECURITY (RLS) UNTUK 13 TABEL
+-- 16. ABSENSI KARYAWAN (ATTENDANCES) & MASTER JADWAL SHIFT KERJA
+-- ============================================================================
+ALTER TABLE public.outlets
+  ADD COLUMN IF NOT EXISTS work_shifts JSONB;
+
+CREATE TABLE IF NOT EXISTS public.attendances (
+  outlet_id TEXT NOT NULL,
+  id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  user_nama TEXT NOT NULL,
+  user_role TEXT NOT NULL DEFAULT 'kasir',
+  tanggal TEXT NOT NULL,
+  shift_id TEXT NOT NULL,
+  shift_nama TEXT NOT NULL,
+  scheduled_start TEXT NOT NULL,
+  scheduled_end TEXT NOT NULL,
+  clock_in_at TEXT NOT NULL,
+  clock_out_at TEXT,
+  photo_in TEXT,
+  photo_out TEXT,
+  late_minutes INTEGER NOT NULL DEFAULT 0,
+  work_minutes INTEGER,
+  status TEXT NOT NULL DEFAULT 'hadir',
+  corrected_by TEXT,
+  corrected_at TEXT,
+  correction_note TEXT,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (outlet_id, id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_attendances_outlet_tanggal
+  ON public.attendances (outlet_id, tanggal DESC);
+
+-- ============================================================================
+-- PERMISSIONS & ROW LEVEL SECURITY (RLS) UNTUK 14 TABEL
 -- ============================================================================
 GRANT USAGE ON SCHEMA public TO anon, authenticated;
 GRANT ALL ON ALL TABLES IN SCHEMA public TO anon, authenticated;
@@ -378,6 +412,7 @@ BEGIN
     'transactions',
     'saved_orders',
     'expenses',
+    'attendances',
     'monthly_targets',
     'cashier_shifts',
     'device_push_tokens',

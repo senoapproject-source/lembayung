@@ -6,6 +6,7 @@ import { addAuditLog, enqueueSync } from '../db/actions';
 import { createNewBranch } from '../services/branchService';
 import { deleteUserFromSupabase } from '../services/syncService';
 import { validateEmail, validatePassword, validatePin } from '../lib/validation';
+import { findDuplicatePinOwner, generateUniqueSixDigitPin } from '../services/attendanceService';
 import type { AppSettings, BranchInfo, User } from '../types/models';
 import {
   Building2,
@@ -108,7 +109,7 @@ export const WebBranchesTeamPage: React.FC<WebBranchesTeamPageProps> = ({
     setUEmail('');
     setURole('kasir');
     setUPassword('');
-    setUPin('');
+    setUPin(generateUniqueSixDigitPin(users));
     setUCanDiscount(settings?.defaultKasirDiscount ?? false);
     setUCanExpense(settings?.defaultKasirRecordExpense ?? true);
     setUActive(true);
@@ -166,6 +167,12 @@ export const WebBranchesTeamPage: React.FC<WebBranchesTeamPageProps> = ({
 
     const pinErr = validatePin(uPin);
     if (pinErr) return setUserErr(pinErr);
+    const dupPin = findDuplicatePinOwner(uPin, users, editingUser?.id);
+    if (dupPin) {
+      return setUserErr(
+        `PIN "${uPin.trim()}" sudah dipakai oleh ${dupPin.nama}. Setiap akun wajib memiliki PIN 6 angka yang unik.`
+      );
+    }
 
     if (!editingUser || uPassword.trim()) {
       const passErr = validatePassword(uPassword);

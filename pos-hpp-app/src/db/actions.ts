@@ -46,7 +46,7 @@ export async function addAuditLog(
 }
 
 export async function enqueueSync(
-  entity: 'transaction' | 'purchase' | 'expense' | 'master',
+  entity: 'transaction' | 'purchase' | 'expense' | 'master' | 'attendance',
   entityId: string,
   action: 'upsert' | 'void' | 'delete',
   payload: unknown
@@ -65,7 +65,7 @@ export async function enqueueSync(
   // Hanya ikut upsert tabel users jika memang ada perubahan user (mencegah user terhapus hidup lagi dari HP/Tab lain)
   if (typeof navigator !== 'undefined' && navigator.onLine) {
     const isUserChange = Boolean((payload as { isUser?: boolean } | null)?.isUser);
-    pushAllLocalToSupabase({ includeUsers: isUserChange }).catch(() => {});
+    pushAllLocalToSupabase({ includeUsers: isUserChange }).catch(() => { });
   }
 }
 
@@ -396,9 +396,8 @@ export async function createPosTransaction(
   await addAuditLog(user, 'TRANSAKSI_BARU', nomorStruk, `Total Rp${total} (${params.metodeBayar})`);
   sendDeviceNotification({
     title: `Penjualan Berhasil ${nomorStruk} (${params.metodeBayar})`,
-    body: `${formatRupiah(total)} · Kasir: ${user.nama}${
-      tx.namaPelanggan ? ` · ${tx.namaPelanggan}` : ''
-    }`,
+    body: `${formatRupiah(total)} · Kasir: ${user.nama}${tx.namaPelanggan ? ` · ${tx.namaPelanggan}` : ''
+      }`,
     dedupKey: `tx-new-${tx.id}`,
     broadcastFcm: true,
   });
@@ -768,7 +767,7 @@ export async function registerNewBusiness(input: {
     };
     await db.users.put(newOwner);
     if (navigator.onLine) {
-      await pushAllLocalToSupabase({ includeUsers: true }).catch(() => {});
+      await pushAllLocalToSupabase({ includeUsers: true }).catch(() => { });
     }
     return { owner: newOwner, outletId };
   }
@@ -826,7 +825,7 @@ export async function registerNewBusiness(input: {
   });
 
   if (navigator.onLine) {
-    await pushAllLocalToSupabase({ includeUsers: true }).catch(() => {});
+    await pushAllLocalToSupabase({ includeUsers: true }).catch(() => { });
   }
 
   return { owner: newOwner, outletId };
@@ -928,16 +927,15 @@ export async function closeCashierShift(
   );
   sendDeviceNotification({
     title: `Tutup Kasir: ${shift.kasirNama}`,
-    body: `Fisik ${formatRupiah(fisik)} · Cash ${formatRupiah(pendapatanCash)} · Selisih ${
-      selisih === 0 ? 'Pas (Rp0)' : `${selisih > 0 ? '+' : ''}${formatRupiah(selisih)}`
-    }`,
+    body: `Fisik ${formatRupiah(fisik)} · Cash ${formatRupiah(pendapatanCash)} · Selisih ${selisih === 0 ? 'Pas (Rp0)' : `${selisih > 0 ? '+' : ''}${formatRupiah(selisih)}`
+      }`,
     dedupKey: `shift-close-${shift.id}`,
     broadcastFcm: true,
   });
   await enqueueSync('master', shift.id, 'upsert', closedShift);
   // Kirim email otomatis rekap Tutup Kasir ke Owner di background (tidak menghambat proses tutup kasir)
   if (typeof navigator !== 'undefined' && navigator.onLine) {
-    sendShiftCloseEmailToOwner(closedShift).catch(() => {});
+    sendShiftCloseEmailToOwner(closedShift).catch(() => { });
   }
   return closedShift;
 }

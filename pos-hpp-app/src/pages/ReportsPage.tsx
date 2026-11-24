@@ -17,6 +17,7 @@ interface ReportsPageProps {
   onOpenExpenses: () => void;
   onOpenHistory: () => void;
   onOpenTargetBep: () => void;
+  onOpenAttendance?: () => void;
 }
 
 type PeriodFilter = 'today' | '7days' | 'this_month' | 'last_month';
@@ -38,6 +39,7 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
   onOpenExpenses,
   onOpenHistory,
   onOpenTargetBep,
+  onOpenAttendance,
 }) => {
   const transactions = useLiveQuery(() => db.transactions.toArray()) ?? [];
   const expenses = useLiveQuery(() => db.expenses.toArray()) ?? [];
@@ -300,6 +302,15 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
           >
             <Target size={14} /> Target &amp; BEP
           </button>
+          {onOpenAttendance && (
+            <button
+              type="button"
+              onClick={onOpenAttendance}
+              className="h-9 px-2.5 sm:px-3 rounded-full bg-[#e4f1ea] text-[#1F7A5A] text-xs font-semibold flex items-center gap-1 whitespace-nowrap"
+            >
+              Absensi Tim
+            </button>
+          )}
           <button
             type="button"
             disabled={emailSending}
