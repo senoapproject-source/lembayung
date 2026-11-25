@@ -809,7 +809,14 @@ export const PosPage: React.FC<PosPageProps> = ({ user, onOpenHistory }) => {
                         <div className="bg-white border border-[#c5dfd1] rounded-lg px-2.5 py-1.5 text-xs text-[#1f1e1d] flex items-start justify-between gap-2">
                           <div className="flex items-start gap-1.5">
                             <MapPin size={13} className="text-[#1F7A5A] shrink-0 mt-0.5" />
-                            <span>{selfMeta.deliveryAddress}</span>
+                            <div>
+                              <div>{selfMeta.deliveryAddress}</div>
+                              {selfMeta.deliveryLandmark && (
+                                <div className="text-[11px] font-semibold text-[#1F7A5A] mt-0.5">
+                                  Patokan: {selfMeta.deliveryLandmark}
+                                </div>
+                              )}
+                            </div>
                           </div>
                           {selfMeta.mapsUrl && (
                             <a

@@ -20,6 +20,7 @@ export interface SelfOrderMeta {
   tableNumber?: string;
   pickupTime?: string;
   deliveryAddress?: string;
+  deliveryLandmark?: string;
   mapsUrl?: string;
   isGroupOrder?: boolean;
   groupCode?: string;
@@ -226,6 +227,7 @@ export async function createGroupOrderRoom(params: {
   tableNumber?: string;
   pickupTime?: string;
   deliveryAddress?: string;
+  deliveryLandmark?: string;
   mapsUrl?: string;
   initialItems: Array<{ menu: MenuItem; jumlah: number; catatan?: string }>;
 }): Promise<{ success: boolean; orderId?: string; groupCode?: string; error?: string }> {
@@ -245,6 +247,7 @@ export async function createGroupOrderRoom(params: {
       tableNumber: params.tableNumber?.trim() || undefined,
       pickupTime: params.pickupTime?.trim() || undefined,
       deliveryAddress: params.deliveryAddress?.trim() || undefined,
+      deliveryLandmark: params.deliveryLandmark?.trim() || undefined,
       mapsUrl: params.mapsUrl?.trim() || undefined,
       isGroupOrder: true,
       groupCode: code,

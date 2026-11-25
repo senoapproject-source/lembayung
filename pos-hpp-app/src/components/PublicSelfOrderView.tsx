@@ -59,6 +59,7 @@ export const PublicSelfOrderView: React.FC = () => {
   const [tableNumber, setTableNumber] = useState(mejaParam);
   const [pickupTime, setPickupTime] = useState('');
   const [deliveryAddress, setDeliveryAddress] = useState('');
+  const [deliveryLandmark, setDeliveryLandmark] = useState('');
   const [mapsUrl, setMapsUrl] = useState('');
   const [locatingGps, setLocatingGps] = useState(false);
 
@@ -171,7 +172,7 @@ export const PublicSelfOrderView: React.FC = () => {
   const mySubtotal = myCart.reduce((s, c) => s + c.menu.hargaJual * c.jumlah, 0);
   const myTotalQty = myCart.reduce((s, c) => s + c.jumlah, 0);
 
-  // Pin GPS Google Maps untuk Pesan Antar
+  // Pin GPS Google Maps + Auto-Fill Alamat Lengkap (Reverse Geocoding) untuk Pesan Antar
   const handleGetGpsLocation = () => {
     if (!navigator.geolocation) {
       alert('Browser Anda tidak mendukung fitur GPS.');
@@ -179,16 +180,36 @@ export const PublicSelfOrderView: React.FC = () => {
     }
     setLocatingGps(true);
     navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        const link = `https://maps.google.com/?q=${pos.coords.latitude},${pos.coords.longitude}`;
+      async (pos) => {
+        const lat = pos.coords.latitude;
+        const lng = pos.coords.longitude;
+        const link = `https://maps.google.com/?q=${lat},${lng}`;
         setMapsUrl(link);
+        try {
+          const resp = await fetch(
+            `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}&accept-language=id`
+          );
+          if (resp.ok) {
+            const data = (await resp.json()) as { display_name?: string };
+            if (data?.display_name) {
+              setDeliveryAddress(data.display_name);
+              setLocatingGps(false);
+              return;
+            }
+          }
+        } catch {
+          // fallback ke koordinat jika layanan peta sedang sibuk
+        }
+        if (!deliveryAddress.trim()) {
+          setDeliveryAddress(`Titik GPS (${lat.toFixed(5)}, ${lng.toFixed(5)})`);
+        }
         setLocatingGps(false);
       },
       () => {
-        alert('Gagal mengambil titik GPS. Pastikan izin lokasi aktif.');
+        alert('Gagal mengambil titik GPS. Pastikan izin lokasi browser aktif.');
         setLocatingGps(false);
       },
-      { enableHighAccuracy: true, timeout: 10000 }
+      { enableHighAccuracy: true, timeout: 12000 }
     );
   };
 
@@ -210,6 +231,7 @@ export const PublicSelfOrderView: React.FC = () => {
         tableNumber,
         pickupTime,
         deliveryAddress,
+        deliveryLandmark,
         mapsUrl,
         initialItems: myCart,
       });
@@ -333,6 +355,7 @@ export const PublicSelfOrderView: React.FC = () => {
           tableNumber: tableNumber.trim() || undefined,
           pickupTime: pickupTime.trim() || undefined,
           deliveryAddress: deliveryAddress.trim() || undefined,
+          deliveryLandmark: deliveryLandmark.trim() || undefined,
           mapsUrl: mapsUrl.trim() || undefined,
           isGroupOrder: Boolean(groupOrderId),
           groupCode: sharedMeta?.groupCode,
@@ -481,6 +504,11 @@ export const PublicSelfOrderView: React.FC = () => {
               <div className="bg-[#faf9f5] border border-[#e2e0d8] rounded-xl p-3 text-xs flex flex-col gap-1">
                 <div className="font-semibold text-[#4a4947]">Alamat Pengantaran:</div>
                 <div className="text-[#1f1e1d]">{meta.deliveryAddress}</div>
+                {meta.deliveryLandmark && (
+                  <div className="text-[11px] text-[#1F7A5A] font-medium">
+                    Patokan: {meta.deliveryLandmark}
+                  </div>
+                )}
               </div>
             )}
 
@@ -754,43 +782,61 @@ export const PublicSelfOrderView: React.FC = () => {
             )}
 
             {mode === 'delivery' && (
-              <div className="flex flex-col gap-2">
+              <div className="flex flex-col gap-2.5">
                 <div>
-                  <label className="block text-[11px] font-semibold text-[#4a4947] mb-1">
-                    Alamat Pengantaran Lengkap &amp; Patokan *
-                  </label>
+                  <div className="flex items-center justify-between gap-2 mb-1">
+                    <label className="block text-[11px] font-semibold text-[#4a4947]">
+                      Alamat Pengantaran Lengkap *
+                    </label>
+                    <button
+                      type="button"
+                      onClick={handleGetGpsLocation}
+                      disabled={locatingGps}
+                      className="h-7 px-2.5 rounded-lg bg-[#e4f1ea] text-[#1F7A5A] text-[11px] font-semibold inline-flex items-center gap-1"
+                    >
+                      <Navigation size={11} />
+                      {locatingGps
+                        ? 'Mencari Alamat GPS...'
+                        : mapsUrl
+                        ? '✓ Isi Ulang dari GPS'
+                        : 'Isi Otomatis dari GPS'}
+                    </button>
+                  </div>
                   <textarea
                     rows={2}
                     value={deliveryAddress}
                     onChange={(e) => setDeliveryAddress(e.target.value)}
-                    placeholder="Jl. Kemuning No. 10 (Pagar hitam samping masjid)"
+                    placeholder="Klik 'Isi Otomatis dari GPS' di kanan atas atau ketik alamat lengkap Anda"
                     className="w-full border border-[#d6d3c8] rounded-xl p-2.5 text-xs"
                   />
-                </div>
-                <div className="flex items-center justify-between gap-2">
-                  <button
-                    type="button"
-                    onClick={handleGetGpsLocation}
-                    disabled={locatingGps}
-                    className="h-8 px-3 rounded-lg bg-[#e4f1ea] text-[#1F7A5A] text-[11px] font-semibold inline-flex items-center gap-1.5"
-                  >
-                    <Navigation size={12} />
-                    {locatingGps
-                      ? 'Mengambil Titik GPS...'
-                      : mapsUrl
-                      ? '✓ Titik GPS Terpasang'
-                      : 'Sematkan Titik GPS Saya'}
-                  </button>
                   {mapsUrl && (
-                    <a
-                      href={mapsUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-[11px] text-[#1F7A5A] underline font-medium"
-                    >
-                      Lihat Peta
-                    </a>
+                    <div className="mt-1 flex items-center justify-between text-[11px]">
+                      <span className="text-[#1F7A5A] font-medium">
+                        ✓ Titik koordinat Google Maps sudah terlampir
+                      </span>
+                      <a
+                        href={mapsUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-[#1F7A5A] underline font-semibold"
+                      >
+                        Lihat Peta
+                      </a>
+                    </div>
                   )}
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-semibold text-[#4a4947] mb-1">
+                    Patokan Lokasi / Detail Rumah (Opsional)
+                  </label>
+                  <input
+                    type="text"
+                    value={deliveryLandmark}
+                    onChange={(e) => setDeliveryLandmark(e.target.value)}
+                    placeholder="Contoh: Pagar hitam samping masjid / Rumah cat krem"
+                    className="w-full h-9 border border-[#d6d3c8] rounded-xl px-3 text-xs"
+                  />
                 </div>
               </div>
             )}
