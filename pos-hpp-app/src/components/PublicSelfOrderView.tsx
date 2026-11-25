@@ -9,6 +9,7 @@ import {
   fetchPublicStoreCatalog,
   formatModeLabel,
   formatStageLabel,
+  getOrCreateSelfOrderDeviceId,
   removeGroupParticipantItems,
   submitSelfOrderToCashier,
   upsertGroupParticipantItems,
@@ -87,6 +88,7 @@ export const PublicSelfOrderView: React.FC = () => {
   const [participantWa, setParticipantWa] = useState(
     () => sessionStorage.getItem('lembayung_so_wa') || ''
   );
+  const myDeviceId = useMemo(() => getOrCreateSelfOrderDeviceId(), []);
 
   const isHost = useMemo(() => {
     if (!groupOrderId) return true;
@@ -238,6 +240,7 @@ export const PublicSelfOrderView: React.FC = () => {
         outletId: outletIdParam,
         hostName: customerName.trim(),
         hostWa: customerWa.trim(),
+        hostDeviceId: myDeviceId,
         mode,
         tableNumber,
         pickupTime,
@@ -292,6 +295,7 @@ export const PublicSelfOrderView: React.FC = () => {
         orderId: groupOrderId,
         participantName: targetPerson,
         participantWa: participantWa.trim() || undefined,
+        participantDeviceId: myDeviceId,
         items: myCart,
       });
       if (!res.success) {
@@ -341,8 +345,13 @@ export const PublicSelfOrderView: React.FC = () => {
         outletId: outletIdParam,
         orderId: groupOrderId,
         participantName: personName,
+        participantDeviceId: myDeviceId,
       });
-      if (res.success && res.updatedOrder) {
+      if (!res.success) {
+        alert(res.error || 'Tidak dapat menghapus pesanan milik perangkat lain.');
+        return;
+      }
+      if (res.updatedOrder) {
         setSharedOrder(res.updatedOrder);
       }
     } finally {
@@ -398,6 +407,20 @@ export const PublicSelfOrderView: React.FC = () => {
           (i) => i.menuId !== '__GROUP_HOLDER__' && i.jumlah > 0
         );
         if (myCart.length > 0) {
+          // Hanya timpa pesanan currentPerson jika pesanan tersebut memang dibuat dari HP ini (myDeviceId)
+          const existingSameName = existingGroupItems.filter(
+            (i) => (i.participantName || '').trim().toLowerCase() === currentPerson.toLowerCase()
+          );
+          const ownedByOtherDevice = existingSameName.some(
+            (i) => i.participantDeviceId && i.participantDeviceId !== myDeviceId
+          );
+          if (ownedByOtherDevice) {
+            alert(
+              `Nama "${currentPerson}" sudah digunakan oleh teman dari HP lain. Pesanan milik "${currentPerson}" tidak dapat diubah dari HP ini.`
+            );
+            setSubmitting(false);
+            return;
+          }
           const others = existingGroupItems.filter(
             (i) => (i.participantName || '').trim().toLowerCase() !== currentPerson.toLowerCase()
           );
@@ -468,7 +491,15 @@ export const PublicSelfOrderView: React.FC = () => {
     );
     const map = new Map<
       string,
-      { name: string; wa?: string; total: number; qty: number; items: SelfOrderCartItem[] }
+      {
+        name: string;
+        wa?: string;
+        deviceId?: string;
+        isMine: boolean;
+        total: number;
+        qty: number;
+        items: SelfOrderCartItem[];
+      }
     >();
     for (const it of items) {
       const pName = (it.participantName || 'Pemesan').trim();
@@ -476,18 +507,24 @@ export const PublicSelfOrderView: React.FC = () => {
       const prev = map.get(key) || {
         name: pName,
         wa: it.participantWa,
+        deviceId: it.participantDeviceId,
+        isMine: !it.participantDeviceId || it.participantDeviceId === myDeviceId,
         total: 0,
         qty: 0,
         items: [],
       };
       if (!prev.wa && it.participantWa) prev.wa = it.participantWa;
+      if (!prev.deviceId && it.participantDeviceId) {
+        prev.deviceId = it.participantDeviceId;
+        prev.isMine = it.participantDeviceId === myDeviceId;
+      }
       prev.total += it.hargaJual * it.jumlah;
       prev.qty += it.jumlah;
       prev.items.push(it);
       map.set(key, prev);
     }
     return Array.from(map.values());
-  }, [sharedOrder?.items]);
+  }, [sharedOrder?.items, myDeviceId]);
 
   if (loading) {
     return (
@@ -769,26 +806,35 @@ export const PublicSelfOrderView: React.FC = () => {
                     <div className="flex items-center justify-between gap-2">
                       <span className="font-semibold text-[#1f1e1d]">
                         👤 {p.name}
+                        {p.isMine && (
+                          <span className="ml-1.5 text-[10px] font-bold px-1.5 py-0.5 rounded bg-[#eef2ff] text-[#3730a3]">
+                            HP Ini
+                          </span>
+                        )}
                         {p.wa && <span className="text-[10px] font-normal text-[#6b6a68]"> · {p.wa}</span>}
                       </span>
                       <div className="flex items-center gap-1.5">
                         <span className="font-bold text-[#1F7A5A]">{formatRupiah(p.total)}</span>
-                        <button
-                          type="button"
-                          onClick={() => handleEditParticipantFromGroup(p.name, p.wa, p.items)}
-                          title="Ubah pilihan menu orang ini di HP ini"
-                          className="h-6 px-2 rounded-md border border-[#d6d3c8] bg-[#faf9f5] hover:bg-[#ece9e0] text-[10px] font-semibold text-[#4a4947] inline-flex items-center gap-1"
-                        >
-                          <Pencil size={10} /> Ubah
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveParticipantFromGroup(p.name)}
-                          title="Hapus pesanan orang ini"
-                          className="h-6 px-1.5 rounded-md border border-[#f5c2bc] bg-[#fdf7f6] hover:bg-[#fbe4e1] text-[#9b1c12] inline-flex items-center"
-                        >
-                          <Trash2 size={10} />
-                        </button>
+                        {p.isMine && (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => handleEditParticipantFromGroup(p.name, p.wa, p.items)}
+                              title="Ubah pilihan menu Anda"
+                              className="h-6 px-2 rounded-md border border-[#d6d3c8] bg-[#faf9f5] hover:bg-[#ece9e0] text-[10px] font-semibold text-[#4a4947] inline-flex items-center gap-1"
+                            >
+                              <Pencil size={10} /> Ubah
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveParticipantFromGroup(p.name)}
+                              title="Hapus pesanan ini"
+                              className="h-6 px-1.5 rounded-md border border-[#f5c2bc] bg-[#fdf7f6] hover:bg-[#fbe4e1] text-[#9b1c12] inline-flex items-center"
+                            >
+                              <Trash2 size={10} />
+                            </button>
+                          </>
+                        )}
                       </div>
                     </div>
                     <div className="text-[11px] text-[#6b6a68]">

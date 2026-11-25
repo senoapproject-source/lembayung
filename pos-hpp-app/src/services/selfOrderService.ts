@@ -34,7 +34,26 @@ export interface SelfOrderMeta {
 export interface SelfOrderCartItem extends SavedOrderItem {
   participantName?: string;
   participantWa?: string;
+  participantDeviceId?: string;
   selfOrderMeta?: SelfOrderMeta;
+}
+
+/**
+ * Ambil / buat ID perangkat unik (localStorage) agar hanya HP pembuat pesanan
+ * yang bisa mengedit atau menghapus pesanannya sendiri di Keranjang Bersama.
+ */
+export function getOrCreateSelfOrderDeviceId(): string {
+  try {
+    const key = 'lembayung_so_device_id';
+    let id = localStorage.getItem(key);
+    if (!id) {
+      id = `dev-${uuidv4().slice(0, 12)}`;
+      localStorage.setItem(key, id);
+    }
+    return id;
+  } catch {
+    return 'dev-fallback';
+  }
 }
 
 export interface PublicStoreCatalog {
@@ -235,6 +254,7 @@ export async function createGroupOrderRoom(params: {
   outletId: string;
   hostName: string;
   hostWa: string;
+  hostDeviceId?: string;
   mode: SelfOrderMode;
   tableNumber?: string;
   pickupTime?: string;
@@ -249,6 +269,7 @@ export async function createGroupOrderRoom(params: {
     const code = `GRP-${Math.floor(1000 + Math.random() * 9000)}`;
     const orderId = `so-${code.toLowerCase()}-${Date.now().toString(36)}`;
     const nowIso = new Date().toISOString();
+    const deviceId = params.hostDeviceId || getOrCreateSelfOrderDeviceId();
 
     const meta: SelfOrderMeta = {
       isSelfOrder: true,
@@ -277,6 +298,7 @@ export async function createGroupOrderRoom(params: {
             catatan: it.catatan?.trim() || undefined,
             participantName: params.hostName.trim(),
             participantWa: params.hostWa.trim() || undefined,
+            participantDeviceId: deviceId,
             ...(idx === 0 ? { selfOrderMeta: meta } : {}),
           }))
         : [
@@ -288,6 +310,7 @@ export async function createGroupOrderRoom(params: {
               jumlah: 0,
               participantName: params.hostName.trim(),
               participantWa: params.hostWa.trim() || undefined,
+              participantDeviceId: deviceId,
               selfOrderMeta: meta,
             },
           ];
@@ -324,6 +347,7 @@ export async function upsertGroupParticipantItems(params: {
   orderId: string;
   participantName: string;
   participantWa?: string;
+  participantDeviceId?: string;
   items: Array<{ menu: MenuItem; jumlah: number; catatan?: string }>;
 }): Promise<{ success: boolean; updatedOrder?: SavedOrder; error?: string }> {
   try {
@@ -339,6 +363,22 @@ export async function upsertGroupParticipantItems(params: {
 
     const cleanName = params.participantName.trim();
     const cleanWa = (params.participantWa || '').trim() || undefined;
+    const callerDeviceId = params.participantDeviceId || getOrCreateSelfOrderDeviceId();
+
+    // Cek apakah nama ini sudah ada di Keranjang Bersama dan dibuat dari HP lain
+    const existingSameNameItems = (existing.items as SelfOrderCartItem[]).filter(
+      (it) =>
+        it.menuId !== '__GROUP_HOLDER__' &&
+        (it.participantName || '').trim().toLowerCase() === cleanName.toLowerCase()
+    );
+    const ownerDeviceId = existingSameNameItems.find((it) => it.participantDeviceId)?.participantDeviceId;
+    if (ownerDeviceId && ownerDeviceId !== callerDeviceId) {
+      return {
+        success: false,
+        error: `Nama "${cleanName}" sudah digunakan oleh teman dari HP lain. Pesanan milik "${cleanName}" hanya bisa diubah dari HP miliknya sendiri. Silakan gunakan nama panggilan lain (mis. "${cleanName} 2").`,
+      };
+    }
+
     const otherItems = (existing.items as SelfOrderCartItem[]).filter(
       (it) =>
         it.menuId !== '__GROUP_HOLDER__' &&
@@ -354,6 +394,7 @@ export async function upsertGroupParticipantItems(params: {
       catatan: it.catatan?.trim() || undefined,
       participantName: cleanName,
       participantWa: cleanWa,
+      participantDeviceId: callerDeviceId,
     }));
 
     const combined: SelfOrderCartItem[] = [...otherItems, ...myNewItems];
@@ -411,11 +452,13 @@ export async function removeGroupParticipantItems(params: {
   outletId: string;
   orderId: string;
   participantName: string;
+  participantDeviceId?: string;
 }): Promise<{ success: boolean; updatedOrder?: SavedOrder; error?: string }> {
   return upsertGroupParticipantItems({
     outletId: params.outletId,
     orderId: params.orderId,
     participantName: params.participantName,
+    participantDeviceId: params.participantDeviceId,
     items: [],
   });
 }

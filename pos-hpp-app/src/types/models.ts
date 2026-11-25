@@ -145,6 +145,7 @@ export interface SavedOrderItem {
   catatan?: string;
   participantName?: string;
   participantWa?: string;
+  participantDeviceId?: string;
 }
 
 export interface SavedOrder {
