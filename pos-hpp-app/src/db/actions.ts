@@ -9,6 +9,7 @@ import {
 } from '../lib/calculations';
 import {
   deleteMenuFromSupabase,
+  deleteSavedOrderFromSupabase,
   pushAllLocalToSupabase,
   upsertMenuToSupabase,
 } from '../services/syncService';
@@ -387,12 +388,24 @@ export async function createPosTransaction(
     syncStatus: navigator.onLine ? 'synced' : 'pending',
   };
 
-  await db.transaction('rw', [db.transactions, db.savedOrders], async () => {
+  await db.transaction('rw', [db.transactions, db.savedOrders, db.syncQueue], async () => {
     await db.transactions.add(tx);
     if (params.savedOrderIdToDelete) {
       await db.savedOrders.delete(params.savedOrderIdToDelete);
+      await db.syncQueue.add({
+        id: uuidv4(),
+        entity: 'master',
+        entityId: params.savedOrderIdToDelete,
+        action: 'delete',
+        payload: { table: 'saved_orders', id: params.savedOrderIdToDelete },
+        createdAt: new Date().toISOString(),
+        retries: 0,
+      });
     }
   });
+  if (params.savedOrderIdToDelete && typeof navigator !== 'undefined' && navigator.onLine) {
+    await deleteSavedOrderFromSupabase(params.savedOrderIdToDelete).catch(() => {});
+  }
   await addAuditLog(user, 'TRANSAKSI_BARU', nomorStruk, `Total Rp${total} (${params.metodeBayar})`);
   sendDeviceNotification({
     title: `Penjualan Berhasil ${nomorStruk} (${params.metodeBayar})`,
@@ -458,7 +471,10 @@ export async function saveHoldOrder(
 
 export async function deleteHoldOrder(orderId: string): Promise<void> {
   await db.savedOrders.delete(orderId);
-  await enqueueSync('master', orderId, 'delete', { orderId });
+  const cloudRes = await deleteSavedOrderFromSupabase(orderId);
+  if (!cloudRes.success) {
+    await enqueueSync('master', orderId, 'delete', { table: 'saved_orders', id: orderId });
+  }
 }
 
 /**

@@ -365,6 +365,38 @@ export async function deleteMenuFromSupabase(
 }
 
 /**
+ * Hapus 1 pesanan tersimpan (Open Bill / saved_orders) dari Supabase saat sudah dibayar atau dihapus
+ */
+export async function deleteSavedOrderFromSupabase(
+  orderId: string
+): Promise<{ success: boolean; error?: string }> {
+  if (typeof navigator !== 'undefined' && !navigator.onLine) {
+    return { success: false, error: 'Offline' };
+  }
+  activeCloudMutations += 1;
+  try {
+    const settings = await db.settings.get('global');
+    const cfg = getSupabaseConfig(settings);
+    const client = getSupabaseClient(settings);
+
+    const { error } = await client
+      .from('saved_orders')
+      .delete()
+      .eq('outlet_id', cfg.outletId)
+      .eq('id', orderId);
+    if (error) return { success: false, error: error.message };
+    return { success: true };
+  } catch (err) {
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : 'Gagal menghapus pesanan tersimpan di Cloud',
+    };
+  } finally {
+    activeCloudMutations = Math.max(0, activeCloudMutations - 1);
+  }
+}
+
+/**
  * Hapus 1 bahan baku dari Supabase agar sinkron di semua perangkat
  */
 export async function deleteIngredientFromSupabase(
@@ -578,7 +610,8 @@ async function pushAllLocalToSupabaseInternal(includeUsers: boolean): Promise<{
     );
     const pendingDeletes = await db.syncQueue.filter((q) => q.action === 'delete').toArray();
     for (const delItem of pendingDeletes) {
-      const tbl = (delItem.payload as { table?: string } | undefined)?.table;
+      const payloadObj = delItem.payload as { table?: string; orderId?: string } | undefined;
+      const tbl = payloadObj?.table || (payloadObj?.orderId ? 'saved_orders' : undefined);
       if (tbl === 'users') {
         await client.from('users').delete().in('outlet_id', relatedOutlets).eq('id', delItem.entityId);
       } else if (tbl === 'menus') {
@@ -586,6 +619,8 @@ async function pushAllLocalToSupabaseInternal(includeUsers: boolean): Promise<{
         await client.from('menus').delete().eq('outlet_id', outletId).eq('id', delItem.entityId);
       } else if (tbl === 'ingredients') {
         await client.from('ingredients').delete().eq('outlet_id', outletId).eq('id', delItem.entityId);
+      } else if (tbl === 'saved_orders') {
+        await client.from('saved_orders').delete().eq('outlet_id', outletId).eq('id', delItem.entityId);
       }
     }
 

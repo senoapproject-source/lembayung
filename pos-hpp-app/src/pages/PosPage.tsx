@@ -180,14 +180,21 @@ export const PosPage: React.FC<PosPageProps> = ({ user, onOpenHistory }) => {
   const handleResumeSavedOrder = (order: SavedOrder) => {
     const restoredCart: CartItem[] = [];
     for (const it of order.items) {
-      const m = menuMap.get(it.menuId);
-      if (m) {
-        restoredCart.push({
-          menu: m,
-          jumlah: it.jumlah,
-          catatan: it.catatan || '',
-        });
-      }
+      const m =
+        menuMap.get(it.menuId) ?? {
+          id: it.menuId,
+          recipeId: '',
+          nama: it.menuNama,
+          kategori: 'Lainnya',
+          hargaJual: it.hargaJual,
+          active: true,
+          updatedAt: order.waktuSimpan,
+        };
+      restoredCart.push({
+        menu: m,
+        jumlah: it.jumlah,
+        catatan: it.catatan || '',
+      });
     }
     const sub = restoredCart.reduce((s, c) => s + c.menu.hargaJual * c.jumlah, 0);
     setCart(restoredCart);
