@@ -255,7 +255,7 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
               value={waNumber}
               onChange={(e) => setWaNumber(e.target.value)}
               placeholder="No. WA Pelanggan (0812... / kosongkan)"
-              className="flex-1 h-10 rounded-lg border border-[#d6d3c8] bg-white px-3 text-xs focus:outline-none focus:border-[#1F7A5A]"
+              className="flex-1 min-w-0 h-10 rounded-lg border border-[#d6d3c8] bg-white px-3 text-xs focus:outline-none focus:border-[#1F7A5A]"
             />
             <button
               type="button"
@@ -273,7 +273,7 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
 
         {/* Kirim Struk Terpisah per Pemesan (Split Bill WhatsApp) */}
         {splitParticipants.length > 1 && (
-          <div className="bg-[#eef2ff] border border-[#c7d2fe] rounded-xl p-3 flex flex-col gap-2.5">
+          <div className="bg-[#eef2ff] border border-[#c7d2fe] rounded-xl p-3 flex flex-col gap-2.5 overflow-hidden">
             <div>
               <div className="text-xs font-bold text-[#3730a3]">
                 👥 Kirim Struk Terpisah per Pemesan (Split Bill)
@@ -287,18 +287,18 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
               return (
                 <div
                   key={p.name}
-                  className="bg-white border border-[#c7d2fe] rounded-lg p-2.5 flex flex-col gap-1.5"
+                  className="bg-white border border-[#c7d2fe] rounded-lg p-2.5 flex flex-col gap-1.5 min-w-0"
                 >
-                  <div className="flex justify-between items-center text-xs">
-                    <span className="font-bold text-[#1f1e1d]">
+                  <div className="flex justify-between items-center gap-2 text-xs">
+                    <span className="font-bold text-[#1f1e1d] truncate">
                       👤 {p.name}{' '}
                       <span className="font-normal text-[#6b6a68]">
                         ({p.items.reduce((s, i) => s + i.jumlah, 0)} item)
                       </span>
                     </span>
-                    <span className="font-bold text-[#1F7A5A]">{formatRupiah(p.subtotal)}</span>
+                    <span className="font-bold text-[#1F7A5A] shrink-0">{formatRupiah(p.subtotal)}</span>
                   </div>
-                  <div className="flex gap-1.5">
+                  <div className="flex items-center gap-1.5 min-w-0">
                     <input
                       type="tel"
                       value={currentWa}
@@ -306,14 +306,15 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
                         setParticipantWaMap((prev) => ({ ...prev, [p.name]: e.target.value }))
                       }
                       placeholder={`No. WA ${p.name} (0812...)`}
-                      className="flex-1 h-8 rounded-lg border border-[#d6d3c8] px-2.5 text-xs"
+                      className="flex-1 min-w-0 w-full h-8 rounded-lg border border-[#d6d3c8] px-2.5 text-xs focus:outline-none focus:border-[#4338ca]"
                     />
                     <button
                       type="button"
                       onClick={() => handleSendSplitParticipantWa(p)}
-                      className="h-8 px-2.5 rounded-lg bg-[#4338ca] hover:bg-[#3730a3] text-white text-[11px] font-semibold inline-flex items-center gap-1 shrink-0"
+                      title={`Kirim Struk ke ${p.name}`}
+                      className="h-8 px-3 rounded-lg bg-[#4338ca] hover:bg-[#3730a3] text-white text-[11px] font-semibold inline-flex items-center justify-center gap-1 shrink-0 whitespace-nowrap"
                     >
-                      <MessageCircle size={12} /> Kirim Struk {p.name}
+                      <MessageCircle size={12} /> Kirim WA
                     </button>
                   </div>
                 </div>
@@ -330,12 +331,12 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
             </span>
           </div>
 
-          <div className="flex gap-1.5">
+          <div className="flex gap-1.5 min-w-0">
             <input
               type="text"
               readOnly
               value={webReceiptUrl}
-              className="flex-1 h-9 rounded-lg border border-[#d6d3c8] bg-[#faf9f5] px-2.5 text-[11px] text-[#6b6a68]"
+              className="flex-1 min-w-0 h-9 rounded-lg border border-[#d6d3c8] bg-[#faf9f5] px-2.5 text-[11px] text-[#6b6a68]"
             />
             <button
               type="button"
