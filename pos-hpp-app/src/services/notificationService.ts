@@ -375,7 +375,38 @@ export async function startRealtimeTransactionNotifications(): Promise<void> {
         pullAllFromSupabase().catch(() => {});
       }
     )
-    // 5. Notifikasi instan saat ada rilis update versi baru di app_versions (OTA maupun APK manual)
+    // 5. Notifikasi instan saat pelanggan mengirim pesanan Self-Order / Group Order baru
+    .on(
+      'postgres_changes',
+      {
+        event: '*',
+        schema: 'public',
+        table: 'saved_orders',
+        filter: `outlet_id=eq.${outletId}`,
+      },
+      (payload) => {
+        const row = payload.new as Record<string, any> | null;
+        if (
+          (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') &&
+          row?.id &&
+          row?.kasir_id === 'SELF_ORDER'
+        ) {
+          const items = Array.isArray(row.items) ? row.items : [];
+          const totalRp = items.reduce(
+            (s: number, i: Record<string, any>) =>
+              s + Number(i.hargaJual || 0) * Number(i.jumlah || 0),
+            0
+          );
+          sendDeviceNotification({
+            title: `📱 Pesanan Self-Order: ${row.label_meja_pelanggan || 'Pelanggan'}`,
+            body: `${items.length} menu · ${formatRupiah(totalRp)} (${row.kasir_nama || 'Self-Order'})`,
+            dedupKey: `self-order-${row.id}`,
+          });
+        }
+        pullAllFromSupabase().catch(() => {});
+      }
+    )
+    // 6. Notifikasi instan saat ada rilis update versi baru di app_versions (OTA maupun APK manual)
     .on(
       'postgres_changes',
       {

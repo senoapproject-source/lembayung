@@ -10,12 +10,22 @@ import {
 import { sendDeviceNotification } from '../services/notificationService';
 import { formatJam, formatRibuanInput, formatRupiah, stripNonDigits } from '../lib/calculations';
 import { ReceiptModal } from '../components/ReceiptModal';
+import { SelfOrderShareModal } from '../components/SelfOrderShareModal';
+import {
+  extractSelfOrderMeta,
+  formatModeLabel,
+  formatStageLabel,
+  updateSelfOrderStageByCashier,
+} from '../services/selfOrderService';
 import type { MenuItem, PaymentMethod, SavedOrder, Transaction, User } from '../types/models';
 import {
   Bookmark,
   FolderOpen,
+  MapPin,
+  MessageCircle,
   Minus,
   Plus,
+  QrCode,
   Search,
   ShoppingBag,
   Trash2,
@@ -36,10 +46,16 @@ interface CartItem {
 export const PosPage: React.FC<PosPageProps> = ({ user, onOpenHistory }) => {
   const settings = useLiveQuery(() => db.settings.get('global'));
   const menus = useLiveQuery(() => db.menus.toArray()) ?? [];
-  const savedOrders =
+  const rawSavedOrders =
     useLiveQuery(() => db.savedOrders.orderBy('waktuSimpan').reverse().toArray()) ?? [];
+  // Sembunyikan kamar Pesan Bareng yang masih draft (belum dikirim Host ke kasir)
+  const savedOrders = useMemo(
+    () => rawSavedOrders.filter((o) => o.kasirId !== 'SELF_ORDER_GROUP_DRAFT'),
+    [rawSavedOrders]
+  );
 
   const [search, setSearch] = useState('');
+  const [showSelfOrderShare, setShowSelfOrderShare] = useState(false);
   const [deleteOrderTarget, setDeleteOrderTarget] = useState<SavedOrder | null>(null);
   const [deleteOrderPin, setDeleteOrderPin] = useState('');
   const [deleteOrderReason, setDeleteOrderReason] = useState('');
@@ -467,6 +483,15 @@ export const PosPage: React.FC<PosPageProps> = ({ user, onOpenHistory }) => {
           <div className="flex items-center gap-1.5 shrink-0">
             <button
               type="button"
+              onClick={() => setShowSelfOrderShare(true)}
+              title="Bagikan QR & Link Self-Order / Delivery / Pesan Bareng"
+              className="h-9 px-2.5 sm:px-3 rounded-full border border-[#c5dfd1] bg-[#f4f9f6] text-[#1F7A5A] text-xs font-semibold flex items-center gap-1 whitespace-nowrap"
+            >
+              <QrCode size={14} />
+              <span className="hidden sm:inline">QR &amp; Link</span> Order
+            </button>
+            <button
+              type="button"
               onClick={() => setShowSavedListModal(true)}
               className="h-9 px-2.5 sm:px-3 rounded-full border border-[#1F7A5A] bg-[#e4f1ea] text-[#1F7A5A] text-xs font-semibold flex items-center gap-1 whitespace-nowrap"
             >
@@ -736,18 +761,39 @@ export const PosPage: React.FC<PosPageProps> = ({ user, onOpenHistory }) => {
                 {savedOrders.map((ord) => {
                   const ordTotal = ord.items.reduce((s, i) => s + i.hargaJual * i.jumlah, 0);
                   const ordQty = ord.items.reduce((s, i) => s + i.jumlah, 0);
+                  const selfMeta = extractSelfOrderMeta(ord);
+                  const waClean = (ord.noWaPelanggan || '')
+                    .replace(/\D/g, '')
+                    .replace(/^0/, '62');
                   return (
                     <div
                       key={ord.id}
-                      className="border border-[#e2e0d8] rounded-xl p-3.5 flex flex-col gap-2 bg-[#faf9f5]"
+                      className={`border rounded-xl p-3.5 flex flex-col gap-2 ${
+                        selfMeta
+                          ? 'border-[#1F7A5A]/50 bg-[#f4f9f6]'
+                          : 'border-[#e2e0d8] bg-[#faf9f5]'
+                      }`}
                     >
                       <div className="flex justify-between items-start gap-2">
                         <div>
-                          <div className="font-bold text-sm text-[#1f1e1d]">
-                            {ord.labelMejaPelanggan}
+                          <div className="font-bold text-sm text-[#1f1e1d] flex items-center gap-1.5 flex-wrap">
+                            <span>{ord.labelMejaPelanggan}</span>
+                            {selfMeta && (
+                              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-[#1F7A5A] text-white">
+                                {formatModeLabel(selfMeta.mode)}
+                              </span>
+                            )}
+                            {selfMeta?.isGroupOrder && (
+                              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-[#e0e7ff] text-[#3730a3]">
+                                Pesan Bareng
+                              </span>
+                            )}
                           </div>
                           <div className="text-xs text-[#6b6a68]">
-                            Disimpan pukul {formatJam(ord.waktuSimpan)} · oleh {ord.kasirNama}
+                            Disimpan pukul {formatJam(ord.waktuSimpan)} ·{' '}
+                            {selfMeta
+                              ? formatStageLabel(selfMeta.stage, selfMeta.mode)
+                              : `oleh ${ord.kasirNama}`}
                             {ord.noWaPelanggan ? ` · WA: ${ord.noWaPelanggan}` : ''}
                           </div>
                         </div>
@@ -759,9 +805,77 @@ export const PosPage: React.FC<PosPageProps> = ({ user, onOpenHistory }) => {
                         </div>
                       </div>
 
+                      {selfMeta?.deliveryAddress && (
+                        <div className="bg-white border border-[#c5dfd1] rounded-lg px-2.5 py-1.5 text-xs text-[#1f1e1d] flex items-start justify-between gap-2">
+                          <div className="flex items-start gap-1.5">
+                            <MapPin size={13} className="text-[#1F7A5A] shrink-0 mt-0.5" />
+                            <span>{selfMeta.deliveryAddress}</span>
+                          </div>
+                          {selfMeta.mapsUrl && (
+                            <a
+                              href={selfMeta.mapsUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-[11px] font-bold text-[#1F7A5A] underline shrink-0"
+                            >
+                              Buka Maps
+                            </a>
+                          )}
+                        </div>
+                      )}
+
                       <div className="text-xs text-[#4a4947]">
-                        {ord.items.map((i) => `${i.menuNama} ×${i.jumlah}`).join(', ')}
+                        {ord.items
+                          .map(
+                            (i) =>
+                              `${i.menuNama} ×${i.jumlah}${i.catatan ? ` (${i.catatan})` : ''}`
+                          )
+                          .join(', ')}
                       </div>
+
+                      {/* Tombol Update Status Live & Konfirmasi WA khusus Pesanan Self-Order */}
+                      {selfMeta && (
+                        <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+                          <button
+                            type="button"
+                            onClick={() => updateSelfOrderStageByCashier(ord, 'diproses')}
+                            className={`h-7 px-2.5 rounded-lg text-[11px] font-semibold border transition ${
+                              selfMeta.stage === 'diproses'
+                                ? 'bg-[#1F7A5A] border-[#1F7A5A] text-white'
+                                : 'bg-white border-[#c5dfd1] text-[#1F7A5A]'
+                            }`}
+                          >
+                            👨‍🍳 Proses/Masak
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => updateSelfOrderStageByCashier(ord, 'diantar')}
+                            className={`h-7 px-2.5 rounded-lg text-[11px] font-semibold border transition ${
+                              selfMeta.stage === 'diantar'
+                                ? 'bg-[#1F7A5A] border-[#1F7A5A] text-white'
+                                : 'bg-white border-[#c5dfd1] text-[#1F7A5A]'
+                            }`}
+                          >
+                            {selfMeta.mode === 'delivery' ? '🛵 Sedang Diantar' : '✅ Siap Diambil'}
+                          </button>
+                          {waClean && (
+                            <a
+                              href={`https://wa.me/${waClean}?text=${encodeURIComponent(
+                                `Halo Kak *${selfMeta.customerName}*, pesanan Anda di *${
+                                  settings?.namaUsaha || 'Lembayung'
+                                }* (${ordQty} item · Total *${formatRupiah(
+                                  ordTotal
+                                )}*) sudah kami terima dan sedang kami proses ya!`
+                              )}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="h-7 px-2.5 rounded-lg bg-white border border-[#c5dfd1] text-[#1F7A5A] text-[11px] font-semibold inline-flex items-center gap-1"
+                            >
+                              <MessageCircle size={12} /> Konfirmasi WA
+                            </a>
+                          )}
+                        </div>
+                      )}
 
                       <div className="flex gap-2 pt-1">
                         <button
@@ -921,6 +1035,14 @@ export const PosPage: React.FC<PosPageProps> = ({ user, onOpenHistory }) => {
             {renderCheckoutControls(false)}
           </div>
         </div>
+      )}
+
+      {/* Modal QR & Link Self-Order / Delivery / Pesan Bareng */}
+      {showSelfOrderShare && (
+        <SelfOrderShareModal
+          settings={settings}
+          onClose={() => setShowSelfOrderShare(false)}
+        />
       )}
 
       {/* Modal Struk Digital + Kirim WA Biasa + Link Struk */}

@@ -1,0 +1,966 @@
+import React, { useEffect, useMemo, useState } from 'react';
+import { formatRupiah } from '../lib/calculations';
+import { CuaninLogo } from './CuaninLogo';
+import {
+  buildSelfOrderUrl,
+  createGroupOrderRoom,
+  extractSelfOrderMeta,
+  fetchPublicSelfOrder,
+  fetchPublicStoreCatalog,
+  formatModeLabel,
+  formatStageLabel,
+  submitSelfOrderToCashier,
+  upsertGroupParticipantItems,
+  type PublicStoreCatalog,
+  type SelfOrderCartItem,
+  type SelfOrderMode,
+} from '../services/selfOrderService';
+import type { MenuItem, SavedOrder } from '../types/models';
+import {
+  Check,
+  CheckCircle2,
+  Copy,
+  MessageCircle,
+  Minus,
+  Navigation,
+  Plus,
+  Search,
+  Share2,
+  ShoppingBag,
+  Store,
+  Users,
+} from 'lucide-react';
+
+interface LocalCartEntry {
+  menu: MenuItem;
+  jumlah: number;
+  catatan: string;
+}
+
+export const PublicSelfOrderView: React.FC = () => {
+  const params = new URLSearchParams(window.location.search);
+  const outletIdParam = (params.get('order') || '').trim().toUpperCase();
+  const mejaParam = (params.get('meja') || '').trim();
+  const initialGroupId = (params.get('group') || '').trim();
+  const initialTrackId = (params.get('track') || '').trim();
+
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [catalog, setCatalog] = useState<PublicStoreCatalog | null>(null);
+
+  // Mode Pesanan & Identitas Pelanggan
+  const [mode, setMode] = useState<SelfOrderMode>(mejaParam ? 'dine_in' : 'delivery');
+  const [customerName, setCustomerName] = useState(
+    () => sessionStorage.getItem('lembayung_so_name') || ''
+  );
+  const [customerWa, setCustomerWa] = useState(
+    () => sessionStorage.getItem('lembayung_so_wa') || ''
+  );
+  const [tableNumber, setTableNumber] = useState(mejaParam);
+  const [pickupTime, setPickupTime] = useState('');
+  const [deliveryAddress, setDeliveryAddress] = useState('');
+  const [mapsUrl, setMapsUrl] = useState('');
+  const [locatingGps, setLocatingGps] = useState(false);
+
+  // Katalog & Keranjang Pribadi
+  const [search, setSearch] = useState('');
+  const [selectedKategori, setSelectedKategori] = useState('Semua');
+  const [myCart, setMyCart] = useState<LocalCartEntry[]>([]);
+  const [submitting, setSubmitting] = useState(false);
+
+  // Group Order (Pesan Bareng) & Live Tracking State
+  const [groupOrderId, setGroupOrderId] = useState<string>(initialGroupId);
+  const [trackedOrderId, setTrackedOrderId] = useState<string>(initialTrackId);
+  const [sharedOrder, setSharedOrder] = useState<SavedOrder | null>(null);
+  const [orderCompletedPaid, setOrderCompletedPaid] = useState(false);
+  const [copiedLink, setCopiedLink] = useState(false);
+  const [groupSyncMsg, setGroupSyncMsg] = useState('');
+
+  const isHost = useMemo(() => {
+    if (!groupOrderId) return true;
+    return sessionStorage.getItem(`lembayung_host_${groupOrderId}`) === '1';
+  }, [groupOrderId]);
+
+  // 1. Muat katalog toko
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    fetchPublicStoreCatalog(outletIdParam)
+      .then((res) => {
+        if (cancelled) return;
+        if (!res.success || !res.catalog) {
+          setError(res.error || 'Toko tidak ditemukan.');
+          return;
+        }
+        setCatalog(res.catalog);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [outletIdParam]);
+
+  // 2. Poll live data untuk Group Order atau Live Order Tracking setiap 4 detik
+  const activePollOrderId = trackedOrderId || groupOrderId;
+  useEffect(() => {
+    if (!activePollOrderId || !outletIdParam) return;
+    let cancelled = false;
+
+    const refreshOrder = async () => {
+      const ord = await fetchPublicSelfOrder(outletIdParam, activePollOrderId);
+      if (cancelled) return;
+      if (!ord) {
+        // Jika sebelumnya sudah ada dan sekarang hilang dari saved_orders -> artinya sudah selesai dibayar di Kasir!
+        if (sharedOrder && trackedOrderId) {
+          setOrderCompletedPaid(true);
+        }
+        return;
+      }
+      setSharedOrder(ord);
+      const meta = extractSelfOrderMeta(ord);
+      if (meta && meta.stage !== 'draft_group' && !trackedOrderId) {
+        // Host sudah mengirim pesanan grup ke kasir -> otomatis pindah ke layar Live Tracker!
+        setTrackedOrderId(ord.id);
+      }
+    };
+
+    refreshOrder();
+    const timer = setInterval(refreshOrder, 4000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [activePollOrderId, outletIdParam, Boolean(sharedOrder), trackedOrderId]);
+
+  const categories = useMemo(() => {
+    const s = new Set(['Semua']);
+    (catalog?.menus || []).forEach((m) => s.add(m.kategori));
+    return Array.from(s);
+  }, [catalog?.menus]);
+
+  const filteredMenus = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return (catalog?.menus || []).filter((m) => {
+      const matchCat = selectedKategori === 'Semua' || m.kategori === selectedKategori;
+      const matchQ = !q || m.nama.toLowerCase().includes(q);
+      return matchCat && matchQ;
+    });
+  }, [catalog?.menus, selectedKategori, search]);
+
+  const getMyQty = (menuId: string) =>
+    myCart.find((c) => c.menu.id === menuId)?.jumlah || 0;
+
+  const updateMyCart = (menu: MenuItem, delta: number) => {
+    setMyCart((prev) => {
+      const idx = prev.findIndex((c) => c.menu.id === menu.id);
+      if (idx === -1 && delta > 0) {
+        return [...prev, { menu, jumlah: delta, catatan: '' }];
+      }
+      return prev
+        .map((c, i) => (i === idx ? { ...c, jumlah: c.jumlah + delta } : c))
+        .filter((c) => c.jumlah > 0);
+    });
+  };
+
+  const updateMyNote = (menuId: string, catatan: string) => {
+    setMyCart((prev) => prev.map((c) => (c.menu.id === menuId ? { ...c, catatan } : c)));
+  };
+
+  const mySubtotal = myCart.reduce((s, c) => s + c.menu.hargaJual * c.jumlah, 0);
+  const myTotalQty = myCart.reduce((s, c) => s + c.jumlah, 0);
+
+  // Pin GPS Google Maps untuk Pesan Antar
+  const handleGetGpsLocation = () => {
+    if (!navigator.geolocation) {
+      alert('Browser Anda tidak mendukung fitur GPS.');
+      return;
+    }
+    setLocatingGps(true);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const link = `https://maps.google.com/?q=${pos.coords.latitude},${pos.coords.longitude}`;
+        setMapsUrl(link);
+        setLocatingGps(false);
+      },
+      () => {
+        alert('Gagal mengambil titik GPS. Pastikan izin lokasi aktif.');
+        setLocatingGps(false);
+      },
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
+  };
+
+  // Buat Kamar Pesan Bareng (Group Order)
+  const handleStartGroupOrder = async () => {
+    if (!customerName.trim()) {
+      alert('Masukkan Nama Anda terlebih dahulu sebelum membuat Pesanan Bareng.');
+      return;
+    }
+    sessionStorage.setItem('lembayung_so_name', customerName.trim());
+    sessionStorage.setItem('lembayung_so_wa', customerWa.trim());
+    setSubmitting(true);
+    try {
+      const res = await createGroupOrderRoom({
+        outletId: outletIdParam,
+        hostName: customerName.trim(),
+        hostWa: customerWa.trim(),
+        mode,
+        tableNumber,
+        pickupTime,
+        deliveryAddress,
+        mapsUrl,
+        initialItems: myCart,
+      });
+      if (!res.success || !res.orderId) {
+        alert(res.error || 'Gagal membuat kamar Pesan Bareng.');
+        return;
+      }
+      sessionStorage.setItem(`lembayung_host_${res.orderId}`, '1');
+      setGroupOrderId(res.orderId);
+      const nextUrl = buildSelfOrderUrl(outletIdParam, {
+        group: res.orderId,
+        customBaseUrl: window.location.origin,
+      });
+      window.history.replaceState({}, '', nextUrl);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  // Teman menyimpan pilihannya ke Keranjang Bersama
+  const handleSaveMyGroupItems = async () => {
+    if (!customerName.trim()) {
+      alert('Masukkan Nama Panggilan Anda terlebih dahulu.');
+      return;
+    }
+    if (myCart.length === 0) {
+      alert('Pilih minimal 1 menu untuk dimasukkan ke Keranjang Bareng.');
+      return;
+    }
+    sessionStorage.setItem('lembayung_so_name', customerName.trim());
+    setSubmitting(true);
+    setGroupSyncMsg('');
+    try {
+      const res = await upsertGroupParticipantItems({
+        outletId: outletIdParam,
+        orderId: groupOrderId,
+        participantName: customerName.trim(),
+        items: myCart,
+      });
+      if (!res.success) {
+        alert(res.error || 'Gagal menyimpan ke Keranjang Bareng.');
+        return;
+      }
+      if (res.updatedOrder) setSharedOrder(res.updatedOrder);
+      setGroupSyncMsg(`Pilihan menu ${customerName.trim()} berhasil masuk ke Keranjang Bareng!`);
+      setTimeout(() => setGroupSyncMsg(''), 3500);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  // Kirim Pesanan (Mandiri atau Finalisasi Group Order) ke Kasir Toko
+  const handleSubmitOrderToStore = async () => {
+    if (!customerName.trim()) {
+      alert('Nama Pemesan wajib diisi.');
+      return;
+    }
+    if (mode === 'dine_in' && !tableNumber.trim()) {
+      alert('Nomor Meja wajib diisi untuk Makan di Tempat.');
+      return;
+    }
+    if ((mode === 'delivery' || mode === 'pickup') && customerWa.replace(/\D/g, '').length < 9) {
+      alert('Nomor WhatsApp aktif wajib diisi untuk konfirmasi pesanan.');
+      return;
+    }
+    if (mode === 'delivery' && !deliveryAddress.trim()) {
+      alert('Alamat pengantaran lengkap wajib diisi untuk Pesan Antar.');
+      return;
+    }
+
+    sessionStorage.setItem('lembayung_so_name', customerName.trim());
+    sessionStorage.setItem('lembayung_so_wa', customerWa.trim());
+
+    setSubmitting(true);
+    try {
+      let itemsToSend: Array<{
+        menuId: string;
+        menuNama: string;
+        hargaJual: number;
+        jumlah: number;
+        catatan?: string;
+        participantName?: string;
+      }> = [];
+
+      if (groupOrderId && sharedOrder) {
+        // Gabungkan item teman-teman di sharedOrder + item Host saat ini di myCart
+        const cleanHost = customerName.trim();
+        const others = (sharedOrder.items as SelfOrderCartItem[]).filter(
+          (i) =>
+            i.menuId !== '__GROUP_HOLDER__' &&
+            (i.participantName || '').trim().toLowerCase() !== cleanHost.toLowerCase()
+        );
+        const hostItems = myCart.map((c) => ({
+          menuId: c.menu.id,
+          menuNama: c.menu.nama,
+          hargaJual: c.menu.hargaJual,
+          jumlah: c.jumlah,
+          catatan: c.catatan,
+          participantName: cleanHost,
+        }));
+        itemsToSend = [...others, ...hostItems];
+      } else {
+        itemsToSend = myCart.map((c) => ({
+          menuId: c.menu.id,
+          menuNama: c.menu.nama,
+          hargaJual: c.menu.hargaJual,
+          jumlah: c.jumlah,
+          catatan: c.catatan,
+          participantName: customerName.trim(),
+        }));
+      }
+
+      const sharedMeta = sharedOrder ? extractSelfOrderMeta(sharedOrder) : null;
+      const res = await submitSelfOrderToCashier({
+        outletId: outletIdParam,
+        existingGroupOrderId: groupOrderId || undefined,
+        meta: {
+          mode: sharedMeta?.mode || mode,
+          customerName: customerName.trim(),
+          customerWa: customerWa.trim() || undefined,
+          tableNumber: tableNumber.trim() || undefined,
+          pickupTime: pickupTime.trim() || undefined,
+          deliveryAddress: deliveryAddress.trim() || undefined,
+          mapsUrl: mapsUrl.trim() || undefined,
+          isGroupOrder: Boolean(groupOrderId),
+          groupCode: sharedMeta?.groupCode,
+          hostName: sharedMeta?.hostName || customerName.trim(),
+        },
+        items: itemsToSend,
+      });
+
+      if (!res.success || !res.orderId) {
+        alert(res.error || 'Gagal mengirim pesanan.');
+        return;
+      }
+
+      setTrackedOrderId(res.orderId);
+      const trackUrl = buildSelfOrderUrl(outletIdParam, {
+        track: res.orderId,
+        customBaseUrl: window.location.origin,
+      });
+      window.history.replaceState({}, '', trackUrl);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  // Hitung rincian Split Bill per orang untuk Group Order
+  const splitBillSummary = useMemo(() => {
+    const items = ((sharedOrder?.items as SelfOrderCartItem[]) || []).filter(
+      (i) => i.menuId !== '__GROUP_HOLDER__' && i.jumlah > 0
+    );
+    const map = new Map<string, { name: string; total: number; qty: number; items: SelfOrderCartItem[] }>();
+    for (const it of items) {
+      const pName = (it.participantName || 'Pemesan').trim();
+      const key = pName.toLowerCase();
+      const prev = map.get(key) || { name: pName, total: 0, qty: 0, items: [] };
+      prev.total += it.hargaJual * it.jumlah;
+      prev.qty += it.jumlah;
+      prev.items.push(it);
+      map.set(key, prev);
+    }
+    return Array.from(map.values());
+  }, [sharedOrder?.items]);
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-[#faf9f5] flex items-center justify-center text-sm text-[#6b6a68]">
+        Memuat menu toko...
+      </div>
+    );
+  }
+
+  if (error || !catalog) {
+    return (
+      <div className="min-h-screen bg-[#faf9f5] flex items-center justify-center p-4">
+        <div className="bg-white border border-[#e2e0d8] rounded-2xl p-6 max-w-[380px] w-full text-center flex flex-col gap-3">
+          <div className="text-base font-bold text-[#9b1c12]">Tidak Dapat Memuat Toko</div>
+          <div className="text-xs text-[#6b6a68]">{error}</div>
+        </div>
+      </div>
+    );
+  }
+
+  // =========================================================================
+  // LAYAR LIVE ORDER TRACKER (SETELAH PESANAN DIKIRIM KE KASIR)
+  // =========================================================================
+  if (trackedOrderId) {
+    const meta = sharedOrder ? extractSelfOrderMeta(sharedOrder) : null;
+    const stage = orderCompletedPaid ? 'selesai' : meta?.stage || 'menunggu_konfirmasi';
+    const realItems = ((sharedOrder?.items as SelfOrderCartItem[]) || []).filter(
+      (i) => i.menuId !== '__GROUP_HOLDER__' && i.jumlah > 0
+    );
+    const grandTotal = realItems.reduce((s, i) => s + i.hargaJual * i.jumlah, 0);
+    const storeWa = catalog.teleponUsaha.replace(/\D/g, '').replace(/^0/, '62');
+
+    const stages: Array<{ key: string; label: string }> = [
+      { key: 'menunggu_konfirmasi', label: 'Menunggu Konfirmasi Kasir' },
+      { key: 'diproses', label: 'Sedang Disiapkan / Dimasak' },
+      {
+        key: 'diantar',
+        label:
+          meta?.mode === 'delivery'
+            ? 'Sedang Diantar ke Lokasi Anda'
+            : meta?.mode === 'pickup'
+            ? 'Siap Diambil di Toko'
+            : 'Siap Disajikan ke Meja',
+      },
+      { key: 'selesai', label: 'Selesai & Lunas' },
+    ];
+    const currentIdx = Math.max(0, stages.findIndex((s) => s.key === stage));
+
+    return (
+      <div className="min-h-screen bg-[#faf9f5] py-6 px-4 flex justify-center">
+        <div className="w-full max-w-[440px] flex flex-col gap-4">
+          <div className="bg-white border border-[#e2e0d8] rounded-2xl p-5 flex flex-col gap-4 shadow-xs">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <CuaninLogo size={32} />
+                <div>
+                  <div className="font-bold text-sm text-[#1f1e1d]">
+                    {catalog.namaUsaha} ({catalog.namaCabang})
+                  </div>
+                  <div className="text-[11px] text-[#1F7A5A] font-semibold">
+                    Status Pesanan Live
+                  </div>
+                </div>
+              </div>
+              <span className="text-[11px] font-mono font-bold px-2.5 py-1 rounded-lg bg-[#f4f9f6] text-[#1F7A5A] border border-[#c5dfd1]">
+                {meta ? formatModeLabel(meta.mode) : 'Self-Order'}
+              </span>
+            </div>
+
+            <div className="bg-[#f4f9f6] border border-[#c5dfd1] rounded-xl p-4 flex flex-col gap-3">
+              <div className="flex items-center gap-2">
+                <CheckCircle2 size={20} className="text-[#1F7A5A] shrink-0" />
+                <div>
+                  <div className="font-bold text-sm text-[#1f1e1d]">
+                    {formatStageLabel(stage, meta?.mode)}
+                  </div>
+                  <div className="text-[11px] text-[#6b6a68]">
+                    {sharedOrder?.labelMejaPelanggan || customerName}
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-2 pt-1">
+                {stages.map((st, idx) => {
+                  const done = idx <= currentIdx;
+                  return (
+                    <div key={st.key} className="flex items-center gap-2.5 text-xs">
+                      <span
+                        className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold ${
+                          done ? 'bg-[#1F7A5A] text-white' : 'bg-[#e2e0d8] text-[#6b6a68]'
+                        }`}
+                      >
+                        {done ? '✓' : idx + 1}
+                      </span>
+                      <span className={done ? 'font-semibold text-[#1f1e1d]' : 'text-[#6b6a68]'}>
+                        {st.label}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {meta?.deliveryAddress && (
+              <div className="bg-[#faf9f5] border border-[#e2e0d8] rounded-xl p-3 text-xs flex flex-col gap-1">
+                <div className="font-semibold text-[#4a4947]">Alamat Pengantaran:</div>
+                <div className="text-[#1f1e1d]">{meta.deliveryAddress}</div>
+              </div>
+            )}
+
+            {/* Rincian Split Bill per Orang jika Pesan Bareng */}
+            {splitBillSummary.length > 1 && (
+              <div className="border border-[#e2e0d8] rounded-xl p-3.5 flex flex-col gap-2">
+                <div className="font-bold text-xs text-[#1f1e1d] flex items-center gap-1.5">
+                  <Users size={14} className="text-[#1F7A5A]" /> Rincian Patungan per Orang (Split Bill)
+                </div>
+                {splitBillSummary.map((p) => (
+                  <div key={p.name} className="flex justify-between text-xs border-t border-[#eeece5] pt-1.5">
+                    <span className="font-medium text-[#1f1e1d]">
+                      {p.name} <span className="text-[#6b6a68]">({p.qty} item)</span>
+                    </span>
+                    <span className="font-bold text-[#1F7A5A]">{formatRupiah(p.total)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Daftar Item */}
+            <div className="border-t border-[#eeece5] pt-3 flex flex-col gap-2 text-xs">
+              <div className="font-bold text-[#1f1e1d]">Rincian Menu</div>
+              {realItems.map((it) => (
+                <div key={it.id} className="flex justify-between gap-2">
+                  <div>
+                    <div className="font-medium text-[#1f1e1d]">
+                      {it.menuNama} <span className="font-bold">×{it.jumlah}</span>
+                    </div>
+                    {it.catatan && <div className="text-[11px] text-[#6b6a68]">{it.catatan}</div>}
+                  </div>
+                  <div className="font-semibold shrink-0">
+                    {formatRupiah(it.hargaJual * it.jumlah)}
+                  </div>
+                </div>
+              ))}
+              <div className="flex justify-between border-t border-[#eeece5] pt-2 text-sm font-bold">
+                <span>Total Pesanan</span>
+                <span className="text-[#1F7A5A]">{formatRupiah(grandTotal)}</span>
+              </div>
+            </div>
+
+            {storeWa && (
+              <a
+                href={`https://wa.me/${storeWa}?text=${encodeURIComponent(
+                  `Halo ${catalog.namaUsaha}, saya ingin konfirmasi pesanan atas nama *${
+                    meta?.customerName || customerName
+                  }* (Total ${formatRupiah(grandTotal)}).`
+                )}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="h-11 rounded-xl bg-[#1F7A5A] hover:bg-[#15563f] text-white text-xs font-semibold flex items-center justify-center gap-2"
+              >
+                <MessageCircle size={16} /> Hubungi WhatsApp Toko
+              </a>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // =========================================================================
+  // LAYAR UTAMA PEMILIHAN MENU & GROUP ORDER (PESAN BARENG)
+  // =========================================================================
+  const groupShareUrl = groupOrderId
+    ? buildSelfOrderUrl(outletIdParam, {
+        group: groupOrderId,
+        customBaseUrl: window.location.origin,
+      })
+    : '';
+
+  return (
+    <div className="min-h-screen bg-[#faf9f5] pb-28">
+      {/* Header Toko */}
+      <header className="bg-white border-b border-[#e2e0d8] sticky top-0 z-20 px-4 py-3">
+        <div className="max-w-[600px] mx-auto flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <CuaninLogo size={32} />
+            <div className="min-w-0">
+              <div className="font-bold text-sm text-[#1f1e1d] truncate">
+                {catalog.namaUsaha} · {catalog.namaCabang}
+              </div>
+              <div className="text-[11px] text-[#6b6a68] truncate">{catalog.alamatUsaha}</div>
+            </div>
+          </div>
+          <span
+            className={`text-[11px] font-bold px-2.5 py-1 rounded-full shrink-0 ${
+              catalog.isStoreOpen
+                ? 'bg-[#e4f1ea] text-[#15803d]'
+                : 'bg-[#fbe4e1] text-[#9b1c12]'
+            }`}
+          >
+            {catalog.isStoreOpen ? '● Toko Buka' : '● Toko Tutup'}
+          </span>
+        </div>
+      </header>
+
+      <main className="max-w-[600px] mx-auto p-4 flex flex-col gap-4">
+        {!catalog.isStoreOpen && (
+          <div className="bg-[#fbe4e1] border border-[#f5c2bc] text-[#9b1c12] rounded-2xl p-4 text-xs flex items-center gap-3">
+            <Store size={20} className="shrink-0" />
+            <div>
+              <div className="font-bold text-sm">Maaf, Toko Sedang Tutup</div>
+              <div>
+                Saat ini kasir belum membuka operasional toko sehingga belum dapat menerima pesanan baru.
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Banner Kamar Pesan Bareng (Group Order) */}
+        {groupOrderId ? (
+          <div className="bg-[#eef2ff] border border-[#c7d2fe] rounded-2xl p-4 flex flex-col gap-3">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <Users size={18} className="text-[#3730a3]" />
+                <div>
+                  <div className="font-bold text-sm text-[#3730a3]">
+                    Mode Pesan Bareng (Group Order)
+                  </div>
+                  <div className="text-[11px] text-[#4338ca]">
+                    {isHost
+                      ? 'Bagikan link ini ke teman-teman, lalu klik Kirim ke Toko jika semua sudah pilih.'
+                      : 'Pilih menu Anda lalu tekan tombol "Masukkan ke Keranjang Bareng".'}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={async () => {
+                  await navigator.clipboard?.writeText(groupShareUrl);
+                  setCopiedLink(true);
+                  setTimeout(() => setCopiedLink(false), 2000);
+                }}
+                className="flex-1 h-9 rounded-xl bg-white border border-[#c7d2fe] text-[#3730a3] text-xs font-semibold inline-flex items-center justify-center gap-1.5"
+              >
+                {copiedLink ? <Check size={14} /> : <Copy size={14} />}
+                {copiedLink ? 'Link Tersalin' : 'Salin Link Bareng'}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const txt = `Yuk ikut *Pesan Bareng* ke *${catalog.namaUsaha}*! Klik link ini untuk pilih menu masing-masing:\n${groupShareUrl}`;
+                  window.open(`https://wa.me/?text=${encodeURIComponent(txt)}`, '_blank');
+                }}
+                className="flex-1 h-9 rounded-xl bg-[#4338ca] text-white text-xs font-semibold inline-flex items-center justify-center gap-1.5"
+              >
+                <Share2 size={14} /> Share ke Grup WA
+              </button>
+            </div>
+
+            {/* Ringkian Keranjang Bersama & Split Bill Real-Time */}
+            {splitBillSummary.length > 0 && (
+              <div className="bg-white rounded-xl p-3 border border-[#c7d2fe] flex flex-col gap-1.5 text-xs">
+                <div className="font-bold text-[#1f1e1d] flex items-center justify-between">
+                  <span>Keranjang Bersama ({splitBillSummary.length} orang)</span>
+                  <span className="text-[#1F7A5A]">
+                    {formatRupiah(splitBillSummary.reduce((s, p) => s + p.total, 0))}
+                  </span>
+                </div>
+                {splitBillSummary.map((p) => (
+                  <div key={p.name} className="border-t border-[#eeece5] pt-1.5 flex flex-col gap-0.5">
+                    <div className="flex justify-between font-semibold">
+                      <span>👤 {p.name}</span>
+                      <span className="text-[#1F7A5A]">{formatRupiah(p.total)}</span>
+                    </div>
+                    <div className="text-[11px] text-[#6b6a68]">
+                      {p.items.map((i) => `${i.menuNama} ×${i.jumlah}`).join(', ')}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        ) : (
+          /* Pilihan Tipe Pesanan & Buat Pesan Bareng */
+          <div className="bg-white border border-[#e2e0d8] rounded-2xl p-4 flex flex-col gap-3">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs font-bold text-[#1f1e1d]">Pilih Cara Pesan</span>
+              <button
+                type="button"
+                disabled={!catalog.isStoreOpen || submitting}
+                onClick={handleStartGroupOrder}
+                className="text-[11px] font-semibold px-2.5 py-1 rounded-lg bg-[#eef2ff] text-[#3730a3] border border-[#c7d2fe] inline-flex items-center gap-1 disabled:opacity-50"
+              >
+                <Users size={12} /> Buat Pesan Bareng
+              </button>
+            </div>
+
+            <div className="grid grid-cols-3 gap-2">
+              {(
+                [
+                  { key: 'dine_in', label: '🍽️ Makan Sini' },
+                  { key: 'pickup', label: '🛍️ Ambil Sendiri' },
+                  { key: 'delivery', label: '🛵 Pesan Antar' },
+                ] as const
+              ).map((m) => (
+                <button
+                  key={m.key}
+                  type="button"
+                  onClick={() => setMode(m.key)}
+                  className={`h-9 rounded-xl border text-xs font-semibold transition ${
+                    mode === m.key
+                      ? 'bg-[#1F7A5A] border-[#1F7A5A] text-white'
+                      : 'bg-[#faf9f5] border-[#d6d3c8] text-[#4a4947]'
+                  }`}
+                >
+                  {m.label}
+                </button>
+              ))}
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
+              <div>
+                <label className="block text-[11px] font-semibold text-[#4a4947] mb-1">
+                  Nama Anda *
+                </label>
+                <input
+                  type="text"
+                  value={customerName}
+                  onChange={(e) => setCustomerName(e.target.value)}
+                  placeholder="Contoh: Rina"
+                  className="w-full h-9 border border-[#d6d3c8] rounded-xl px-3 text-xs"
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] font-semibold text-[#4a4947] mb-1">
+                  No. WhatsApp {mode !== 'dine_in' ? '*' : '(Opsional)'}
+                </label>
+                <input
+                  type="tel"
+                  value={customerWa}
+                  onChange={(e) => setCustomerWa(e.target.value)}
+                  placeholder="0812xxxx"
+                  className="w-full h-9 border border-[#d6d3c8] rounded-xl px-3 text-xs"
+                />
+              </div>
+            </div>
+
+            {mode === 'dine_in' && (
+              <div>
+                <label className="block text-[11px] font-semibold text-[#4a4947] mb-1">
+                  Nomor Meja *
+                </label>
+                <input
+                  type="text"
+                  value={tableNumber}
+                  onChange={(e) => setTableNumber(e.target.value)}
+                  placeholder="Contoh: Meja 3"
+                  className="w-full h-9 border border-[#d6d3c8] rounded-xl px-3 text-xs"
+                />
+              </div>
+            )}
+
+            {mode === 'pickup' && (
+              <div>
+                <label className="block text-[11px] font-semibold text-[#4a4947] mb-1">
+                  Rencana Jam Ambil
+                </label>
+                <input
+                  type="time"
+                  value={pickupTime}
+                  onChange={(e) => setPickupTime(e.target.value)}
+                  className="w-full h-9 border border-[#d6d3c8] rounded-xl px-3 text-xs"
+                />
+              </div>
+            )}
+
+            {mode === 'delivery' && (
+              <div className="flex flex-col gap-2">
+                <div>
+                  <label className="block text-[11px] font-semibold text-[#4a4947] mb-1">
+                    Alamat Pengantaran Lengkap &amp; Patokan *
+                  </label>
+                  <textarea
+                    rows={2}
+                    value={deliveryAddress}
+                    onChange={(e) => setDeliveryAddress(e.target.value)}
+                    placeholder="Jl. Kemuning No. 10 (Pagar hitam samping masjid)"
+                    className="w-full border border-[#d6d3c8] rounded-xl p-2.5 text-xs"
+                  />
+                </div>
+                <div className="flex items-center justify-between gap-2">
+                  <button
+                    type="button"
+                    onClick={handleGetGpsLocation}
+                    disabled={locatingGps}
+                    className="h-8 px-3 rounded-lg bg-[#e4f1ea] text-[#1F7A5A] text-[11px] font-semibold inline-flex items-center gap-1.5"
+                  >
+                    <Navigation size={12} />
+                    {locatingGps
+                      ? 'Mengambil Titik GPS...'
+                      : mapsUrl
+                      ? '✓ Titik GPS Terpasang'
+                      : 'Sematkan Titik GPS Saya'}
+                  </button>
+                  {mapsUrl && (
+                    <a
+                      href={mapsUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-[11px] text-[#1F7A5A] underline font-medium"
+                    >
+                      Lihat Peta
+                    </a>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Jika peserta bergabung ke Group Order, minta Nama Panggilan */}
+        {groupOrderId && (
+          <div className="bg-white border border-[#e2e0d8] rounded-2xl p-3.5 flex items-center gap-3">
+            <div className="flex-1">
+              <label className="block text-[11px] font-semibold text-[#4a4947] mb-1">
+                Nama Panggilan Anda (untuk label makanan &amp; hitung patungan) *
+              </label>
+              <input
+                type="text"
+                value={customerName}
+                onChange={(e) => setCustomerName(e.target.value)}
+                placeholder="Contoh: Budi"
+                className="w-full h-9 border border-[#d6d3c8] rounded-xl px-3 text-xs"
+              />
+            </div>
+          </div>
+        )}
+
+        {groupSyncMsg && (
+          <div className="bg-[#e4f1ea] border border-[#c5dfd1] text-[#14532d] text-xs font-semibold px-3.5 py-2.5 rounded-xl">
+            {groupSyncMsg}
+          </div>
+        )}
+
+        {/* Pencarian & Filter Kategori Menu */}
+        <div className="flex flex-col gap-2">
+          <div className="relative">
+            <Search
+              size={15}
+              className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#6b6a68]"
+            />
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Cari menu favorit..."
+              className="w-full h-10 pl-9 pr-3 rounded-xl border border-[#d6d3c8] bg-white text-xs focus:outline-none focus:border-[#1F7A5A]"
+            />
+          </div>
+          <div className="flex gap-1.5 overflow-x-auto pb-1">
+            {categories.map((cat) => (
+              <button
+                key={cat}
+                type="button"
+                onClick={() => setSelectedKategori(cat)}
+                className={`h-8 px-3 rounded-full text-xs font-semibold whitespace-nowrap border transition ${
+                  selectedKategori === cat
+                    ? 'bg-[#1F7A5A] border-[#1F7A5A] text-white'
+                    : 'bg-white border-[#d6d3c8] text-[#4a4947]'
+                }`}
+              >
+                {cat}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Daftar Menu */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+          {filteredMenus.map((menu) => {
+            const qty = getMyQty(menu.id);
+            const entry = myCart.find((c) => c.menu.id === menu.id);
+            return (
+              <div
+                key={menu.id}
+                className={`bg-white rounded-2xl p-3.5 border flex flex-col justify-between gap-2.5 transition ${
+                  qty > 0 ? 'border-[#1F7A5A] ring-1 ring-[#1F7A5A]' : 'border-[#e2e0d8]'
+                }`}
+              >
+                <div className="flex justify-between items-start gap-2">
+                  <div>
+                    <div className="text-[10px] font-medium text-[#6b6a68]">{menu.kategori}</div>
+                    <div className="font-bold text-sm text-[#1f1e1d] mt-0.5">{menu.nama}</div>
+                    <div className="font-bold text-sm text-[#1F7A5A] mt-1">
+                      {formatRupiah(menu.hargaJual)}
+                    </div>
+                  </div>
+                  {qty === 0 ? (
+                    <button
+                      type="button"
+                      disabled={!catalog.isStoreOpen}
+                      onClick={() => updateMyCart(menu, 1)}
+                      className="h-8 px-3 rounded-xl bg-[#e4f1ea] text-[#1F7A5A] text-xs font-bold disabled:opacity-40"
+                    >
+                      + Tambah
+                    </button>
+                  ) : (
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => updateMyCart(menu, -1)}
+                        className="w-7 h-7 rounded-full bg-[#ece9e0] flex items-center justify-center"
+                      >
+                        <Minus size={13} />
+                      </button>
+                      <span className="text-xs font-bold min-w-[18px] text-center">{qty}</span>
+                      <button
+                        type="button"
+                        onClick={() => updateMyCart(menu, 1)}
+                        className="w-7 h-7 rounded-full bg-[#1F7A5A] text-white flex items-center justify-center"
+                      >
+                        <Plus size={13} />
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {qty > 0 && (
+                  <input
+                    type="text"
+                    value={entry?.catatan || ''}
+                    onChange={(e) => updateMyNote(menu.id, e.target.value)}
+                    placeholder="Catatan (mis. pedas / tanpa es)"
+                    className="w-full h-8 border border-[#e2e0d8] rounded-lg px-2.5 text-[11px] bg-[#faf9f5]"
+                  />
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </main>
+
+      {/* Bottom Sticky Action Bar */}
+      {catalog.isStoreOpen && (myTotalQty > 0 || (groupOrderId && splitBillSummary.length > 0)) && (
+        <div className="fixed bottom-0 inset-x-0 z-30 bg-white border-t border-[#e2e0d8] p-3 shadow-lg">
+          <div className="max-w-[600px] mx-auto flex items-center justify-between gap-2">
+            <div>
+              <div className="text-[11px] text-[#6b6a68]">
+                {groupOrderId ? `Pilihan Anda (${myTotalQty} item)` : `${myTotalQty} item dipilih`}
+              </div>
+              <div className="font-bold text-sm text-[#1F7A5A]">{formatRupiah(mySubtotal)}</div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              {groupOrderId && (
+                <button
+                  type="button"
+                  disabled={submitting || myTotalQty === 0}
+                  onClick={handleSaveMyGroupItems}
+                  className="h-10 px-3.5 rounded-xl bg-[#4338ca] text-white text-xs font-semibold disabled:opacity-50"
+                >
+                  {submitting ? 'Menyimpan...' : 'Masukkan ke Keranjang Bareng'}
+                </button>
+              )}
+
+              {(!groupOrderId || isHost) && (
+                <button
+                  type="button"
+                  disabled={submitting}
+                  onClick={handleSubmitOrderToStore}
+                  className="h-10 px-4 rounded-xl bg-[#1F7A5A] hover:bg-[#15563f] text-white text-xs font-semibold flex items-center gap-1.5 disabled:opacity-50"
+                >
+                  <ShoppingBag size={14} />
+                  {submitting
+                    ? 'Mengirim...'
+                    : groupOrderId
+                    ? 'Kirim Gabungan ke Toko'
+                    : 'Kirim Pesanan'}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};

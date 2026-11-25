@@ -28,6 +28,7 @@ import {
   type PublicReceiptPayload,
 } from './lib/receipt';
 import { PublicReceiptView } from './components/PublicReceiptView';
+import { PublicSelfOrderView } from './components/PublicSelfOrderView';
 import { WebLoginPage } from './web/WebLoginPage';
 import { WebDashboardShell } from './web/WebDashboardShell';
 import { WebBranchesTeamPage } from './web/WebBranchesTeamPage';
@@ -101,6 +102,9 @@ export function App() {
   );
   const [loadingQueryReceipt, setLoadingQueryReceipt] = useState<boolean>(() =>
     Boolean(new URLSearchParams(window.location.search).get('s'))
+  );
+  const [hasSelfOrderQuery] = useState<boolean>(() =>
+    Boolean(new URLSearchParams(window.location.search).get('order'))
   );
   const [updateInfo, setUpdateInfo] = useState<AppUpdateInfo | null>(null);
   const [updateDismissed, setUpdateDismissed] = useState<boolean>(false);
@@ -479,6 +483,10 @@ export function App() {
     window.addEventListener('hashchange', handleHashChange);
     return () => window.removeEventListener('hashchange', handleHashChange);
   }, []);
+
+  if (hasSelfOrderQuery) {
+    return <PublicSelfOrderView />;
+  }
 
   if (loadingQueryReceipt) {
     return (

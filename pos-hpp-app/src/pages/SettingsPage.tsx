@@ -36,8 +36,9 @@ import {
 import { checkEmailDuplicateInCloud, sendEmployeeCredentialsEmail } from '../services/authEmailService';
 import { compressLogoFileToDataUrl } from '../lib/receipt';
 import { CustomSelect } from '../components/CustomSelect';
+import { SelfOrderShareModal } from '../components/SelfOrderShareModal';
 import type { AppSettings, RoundingStep, User } from '../types/models';
-import { AlertCircle, Check, Copy, LogOut, RotateCcw, Store, Trash2, Upload, X } from 'lucide-react';
+import { AlertCircle, Check, Copy, LogOut, QrCode, RotateCcw, Store, Trash2, Upload, X } from 'lucide-react';
 
 const FALLBACK_SETTINGS: AppSettings = {
   id: 'global',
@@ -117,6 +118,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   const [pShowWa, setPShowWa] = useState(true);
 
   const [statusMessage, setStatusMessage] = useState('');
+  const [showSelfOrderModal, setShowSelfOrderModal] = useState(false);
   const [notifEnabled, setNotifEnabled] = useState<boolean>(() => isNotificationsEnabled());
 
   // Status Salin Kode Toko & Info Sinkronisasi
@@ -643,6 +645,33 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
         <div className="bg-[#e4f1ea] border border-[#c5dfd1] text-[#1F7A5A] text-xs font-semibold px-3.5 py-2.5 rounded-xl">
           {statusMessage}
         </div>
+      )}
+
+      {/* QR & Link Self-Order Pelanggan (Makan di Tempat, Ambil Sendiri, Pesan Antar, & Pesan Bareng) */}
+      <div className="bg-white border border-[#e2e0d8] rounded-xl px-3.5 py-3 flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <div className="font-semibold text-sm flex items-center gap-1.5">
+            <QrCode size={16} className="text-[#1F7A5A] shrink-0" />
+            <span>QR &amp; Link Self-Order Pelanggan</span>
+          </div>
+          <div className="text-xs text-[#6b6a68] mt-0.5">
+            Bagikan link atau cetak QR meja untuk Makan di Tempat, Ambil Sendiri, Pesan Antar, &amp; Pesan Bareng (Group Order)
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={() => setShowSelfOrderModal(true)}
+          className="h-9 px-3.5 rounded-xl bg-[#1F7A5A] hover:bg-[#15563f] text-white text-xs font-semibold shrink-0 whitespace-nowrap"
+        >
+          Buka QR &amp; Link
+        </button>
+      </div>
+
+      {showSelfOrderModal && (
+        <SelfOrderShareModal
+          settings={settings}
+          onClose={() => setShowSelfOrderModal(false)}
+        />
       )}
 
       {/* Tampilan & Notifikasi (Khusus Aplikasi Perangkat) */}
