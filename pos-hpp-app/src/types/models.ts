@@ -109,6 +109,8 @@ export interface TransactionItem {
   hargaJual: number;
   snapshotHpp: number; // FR-POS-05: snapshot saat transaksi
   catatan?: string;
+  participantName?: string; // Nama pemesan pada Pesan Bareng / Split Bill
+  participantWa?: string; // No. WA pemesan untuk kirim struk terpisah
 }
 
 export interface Transaction {
@@ -141,6 +143,8 @@ export interface SavedOrderItem {
   hargaJual: number;
   jumlah: number;
   catatan?: string;
+  participantName?: string;
+  participantWa?: string;
 }
 
 export interface SavedOrder {

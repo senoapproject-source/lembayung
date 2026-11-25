@@ -46,6 +46,8 @@ interface CartItem {
   menu: MenuItem;
   jumlah: number;
   catatan: string;
+  participantName?: string;
+  participantWa?: string;
 }
 
 export const PosPage: React.FC<PosPageProps> = ({ user, onOpenHistory }) => {
@@ -83,8 +85,9 @@ export const PosPage: React.FC<PosPageProps> = ({ user, onOpenHistory }) => {
   const [selectedKategori, setSelectedKategori] = useState('Semua');
   const [cart, setCart] = useState<CartItem[]>([]);
 
-  // Active Hold Order ID
+  // Active Hold Order ID & Optional Split Bill Participant Name
   const [activeSavedOrderId, setActiveSavedOrderId] = useState<string | undefined>(undefined);
+  const [activeSplitParticipant, setActiveSplitParticipant] = useState<string | undefined>(undefined);
   const [namaPelanggan, setNamaPelanggan] = useState('');
   const [noWaPelanggan, setNoWaPelanggan] = useState('');
 
@@ -157,6 +160,7 @@ export const PosPage: React.FC<PosPageProps> = ({ user, onOpenHistory }) => {
   const clearCartState = () => {
     setCart([]);
     setActiveSavedOrderId(undefined);
+    setActiveSplitParticipant(undefined);
     setNamaPelanggan('');
     setNoWaPelanggan('');
     setDiskonMode('none');
@@ -212,10 +216,19 @@ export const PosPage: React.FC<PosPageProps> = ({ user, onOpenHistory }) => {
     setShowPaySheet(false);
   };
 
-  // Muat kembali Order Tersimpan ke keranjang
-  const handleResumeSavedOrder = (order: SavedOrder) => {
+  // Muat kembali Order Tersimpan ke keranjang (mendukung Bayar Semua Gabungan ATAU Split Bill 1 Pemesan Saja)
+  const handleResumeSavedOrder = (order: SavedOrder, onlyParticipantName?: string) => {
+    const targetLower = onlyParticipantName?.trim().toLowerCase();
+    const sourceItems = targetLower
+      ? order.items.filter((it) => (it.participantName || '').trim().toLowerCase() === targetLower)
+      : order.items;
+
     const restoredCart: CartItem[] = [];
-    for (const it of order.items) {
+    let detectedParticipantWa = '';
+    for (const it of sourceItems) {
+      if (it.participantWa && !detectedParticipantWa) {
+        detectedParticipantWa = it.participantWa;
+      }
       const m =
         menuMap.get(it.menuId) ?? {
           id: it.menuId,
@@ -230,14 +243,25 @@ export const PosPage: React.FC<PosPageProps> = ({ user, onOpenHistory }) => {
         menu: m,
         jumlah: it.jumlah,
         catatan: it.catatan || '',
+        participantName: it.participantName,
+        participantWa: it.participantWa,
       });
     }
     const sub = restoredCart.reduce((s, c) => s + c.menu.hargaJual * c.jumlah, 0);
     setCart(restoredCart);
     setUangDiterima(String(sub));
     setActiveSavedOrderId(order.id);
-    setNamaPelanggan(order.labelMejaPelanggan);
-    setNoWaPelanggan(order.noWaPelanggan || '');
+    setActiveSplitParticipant(onlyParticipantName);
+    setNamaPelanggan(
+      onlyParticipantName
+        ? `${onlyParticipantName} (${order.labelMejaPelanggan})`
+        : order.labelMejaPelanggan
+    );
+    setNoWaPelanggan(
+      onlyParticipantName
+        ? detectedParticipantWa || order.noWaPelanggan || ''
+        : order.noWaPelanggan || ''
+    );
     setShowSavedListModal(false);
   };
 
@@ -252,6 +276,8 @@ export const PosPage: React.FC<PosPageProps> = ({ user, onOpenHistory }) => {
             menu: c.menu,
             jumlah: c.jumlah,
             catatan: c.catatan,
+            participantName: c.participantName,
+            participantWa: c.participantWa,
           })),
           metodeBayar,
           diskonNominal,
@@ -260,6 +286,7 @@ export const PosPage: React.FC<PosPageProps> = ({ user, onOpenHistory }) => {
           namaPelanggan: namaPelanggan.trim() || undefined,
           noWaPelanggan: noWaPelanggan.trim() || undefined,
           savedOrderIdToDelete: activeSavedOrderId,
+          splitParticipantToRemove: activeSplitParticipant,
         },
         user
       );
@@ -885,6 +912,64 @@ export const PosPage: React.FC<PosPageProps> = ({ user, onOpenHistory }) => {
                           )
                           .join(', ')}
                       </div>
+
+                      {/* Daftar Split Bill per Orang (Bayar Terpisah & Kirim Struk Terpisah per Pemesan) */}
+                      {(() => {
+                        const pMap = new Map<
+                          string,
+                          { name: string; wa?: string; total: number; qty: number }
+                        >();
+                        for (const it of ord.items) {
+                          const pName = (it.participantName || '').trim();
+                          if (!pName) continue;
+                          const key = pName.toLowerCase();
+                          const prev = pMap.get(key) || {
+                            name: pName,
+                            wa: it.participantWa,
+                            total: 0,
+                            qty: 0,
+                          };
+                          if (!prev.wa && it.participantWa) prev.wa = it.participantWa;
+                          prev.total += it.hargaJual * it.jumlah;
+                          prev.qty += it.jumlah;
+                          pMap.set(key, prev);
+                        }
+                        const participants = Array.from(pMap.values());
+                        if (participants.length <= 1) return null;
+                        return (
+                          <div className="bg-white border border-[#c7d2fe] rounded-xl p-2.5 flex flex-col gap-1.5">
+                            <div className="text-[11px] font-bold text-[#3730a3]">
+                              👥 Split Bill (Bayar &amp; Kirim Struk Terpisah per Orang):
+                            </div>
+                            {participants.map((p) => (
+                              <div
+                                key={p.name}
+                                className="flex items-center justify-between gap-2 text-xs border-t border-[#eeece5] pt-1.5"
+                              >
+                                <div className="min-w-0">
+                                  <span className="font-semibold text-[#1f1e1d]">👤 {p.name}</span>
+                                  <span className="text-[11px] text-[#6b6a68]">
+                                    {' '}
+                                    ({p.qty} item · {formatRupiah(p.total)})
+                                  </span>
+                                  {p.wa && (
+                                    <div className="text-[10px] text-[#1F7A5A] font-mono">
+                                      WA: {p.wa}
+                                    </div>
+                                  )}
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => handleResumeSavedOrder(ord, p.name)}
+                                  className="h-7 px-2.5 rounded-lg bg-[#eef2ff] hover:bg-[#e0e7ff] border border-[#c7d2fe] text-[#3730a3] text-[11px] font-semibold shrink-0"
+                                >
+                                  Bayar {p.name}
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        );
+                      })()}
 
                       {/* Tombol Update Status Live & Konfirmasi WA khusus Pesanan Self-Order */}
                       {selfMeta && (

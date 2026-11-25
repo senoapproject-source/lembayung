@@ -332,6 +332,8 @@ export async function createPosTransaction(
       menu: MenuItem;
       jumlah: number;
       catatan?: string;
+      participantName?: string;
+      participantWa?: string;
     }>;
     metodeBayar: PaymentMethod;
     diskonNominal: number;
@@ -340,6 +342,7 @@ export async function createPosTransaction(
     namaPelanggan?: string;
     noWaPelanggan?: string;
     savedOrderIdToDelete?: string;
+    splitParticipantToRemove?: string;
   },
   user: User
 ): Promise<Transaction> {
@@ -360,6 +363,8 @@ export async function createPosTransaction(
       hargaJual: it.menu.hargaJual,
       snapshotHpp,
       catatan: it.catatan?.trim() || undefined,
+      participantName: it.participantName?.trim() || undefined,
+      participantWa: it.participantWa?.trim() || undefined,
     };
   });
 
@@ -388,23 +393,52 @@ export async function createPosTransaction(
     syncStatus: navigator.onLine ? 'synced' : 'pending',
   };
 
+  let shouldDeleteEntireSavedOrder = Boolean(params.savedOrderIdToDelete);
+  let remainingUpdatedSavedOrder: SavedOrder | null = null;
+
   await db.transaction('rw', [db.transactions, db.savedOrders, db.syncQueue], async () => {
     await db.transactions.add(tx);
     if (params.savedOrderIdToDelete) {
-      await db.savedOrders.delete(params.savedOrderIdToDelete);
-      await db.syncQueue.add({
-        id: uuidv4(),
-        entity: 'master',
-        entityId: params.savedOrderIdToDelete,
-        action: 'delete',
-        payload: { table: 'saved_orders', id: params.savedOrderIdToDelete },
-        createdAt: new Date().toISOString(),
-        retries: 0,
-      });
+      if (params.splitParticipantToRemove) {
+        const existingOrd = await db.savedOrders.get(params.savedOrderIdToDelete);
+        if (existingOrd) {
+          const targetLower = params.splitParticipantToRemove.trim().toLowerCase();
+          const firstMeta = (existingOrd.items[0] as unknown as { selfOrderMeta?: unknown } | undefined)?.selfOrderMeta;
+          const remainingItems = existingOrd.items.filter(
+            (i) => (i.participantName || '').trim().toLowerCase() !== targetLower
+          );
+          if (remainingItems.length > 0) {
+            shouldDeleteEntireSavedOrder = false;
+            if (firstMeta) {
+              (remainingItems[0] as unknown as { selfOrderMeta?: unknown }).selfOrderMeta = firstMeta;
+            }
+            remainingUpdatedSavedOrder = {
+              ...existingOrd,
+              items: remainingItems,
+            };
+            await db.savedOrders.put(remainingUpdatedSavedOrder);
+          }
+        }
+      }
+
+      if (shouldDeleteEntireSavedOrder) {
+        await db.savedOrders.delete(params.savedOrderIdToDelete);
+        await db.syncQueue.add({
+          id: uuidv4(),
+          entity: 'master',
+          entityId: params.savedOrderIdToDelete,
+          action: 'delete',
+          payload: { table: 'saved_orders', id: params.savedOrderIdToDelete },
+          createdAt: new Date().toISOString(),
+          retries: 0,
+        });
+      }
     }
   });
   if (params.savedOrderIdToDelete && typeof navigator !== 'undefined' && navigator.onLine) {
-    await deleteSavedOrderFromSupabase(params.savedOrderIdToDelete).catch(() => {});
+    if (shouldDeleteEntireSavedOrder) {
+      await deleteSavedOrderFromSupabase(params.savedOrderIdToDelete).catch(() => {});
+    }
   }
   await addAuditLog(user, 'TRANSAKSI_BARU', nomorStruk, `Total Rp${total} (${params.metodeBayar})`);
   sendDeviceNotification({

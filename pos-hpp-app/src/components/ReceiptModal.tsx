@@ -40,6 +40,65 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
   // Link Struk Digital via Website (0 KB Supabase Storage!)
   const webReceiptUrl = useMemo(() => buildWebReceiptUrl(tx, settings), [tx, settings]);
 
+  // Deteksi apakah transaksi ini adalah Pesan Bareng (memiliki > 1 pemesan) untuk fitur Kirim Struk Terpisah (Split Bill WA)
+  const splitParticipants = useMemo(() => {
+    const map = new Map<
+      string,
+      { name: string; wa: string; items: Transaction['items']; subtotal: number }
+    >();
+    for (const it of tx.items) {
+      // Ambil nama pemesan dari properti participantName ATAU dari awalan catatan "[Nama]"
+      let pName = (it.participantName || '').trim();
+      if (!pName && it.catatan) {
+        const m = it.catatan.match(/^\[([^\]]+)\]/);
+        if (m?.[1]) pName = m[1].trim();
+      }
+      if (!pName) continue;
+      const key = pName.toLowerCase();
+      const prev = map.get(key) || {
+        name: pName,
+        wa: it.participantWa || '',
+        items: [],
+        subtotal: 0,
+      };
+      if (!prev.wa && it.participantWa) prev.wa = it.participantWa;
+      prev.items.push(it);
+      prev.subtotal += it.hargaJual * it.jumlah;
+      map.set(key, prev);
+    }
+    return Array.from(map.values());
+  }, [tx.items]);
+
+  const [participantWaMap, setParticipantWaMap] = useState<Record<string, string>>({});
+
+  const handleSendSplitParticipantWa = (person: {
+    name: string;
+    wa: string;
+    items: Transaction['items'];
+    subtotal: number;
+  }) => {
+    const ratio = tx.subtotal > 0 ? person.subtotal / tx.subtotal : 0;
+    const personDiscount = Math.round(tx.diskonNominal * ratio);
+    const personTotal = Math.max(0, person.subtotal - personDiscount);
+    const personTx: Transaction = {
+      ...tx,
+      nomorStruk: `${tx.nomorStruk}-${person.name.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6) || 'SPLIT'}`,
+      namaPelanggan: `${person.name} (${tx.namaPelanggan || 'Split Bill'})`,
+      noWaPelanggan: participantWaMap[person.name] ?? person.wa,
+      subtotal: person.subtotal,
+      diskonNominal: personDiscount,
+      total: personTotal,
+      uangDiterima: personTotal,
+      kembalian: 0,
+      items: person.items,
+    };
+    const personWebUrl = buildWebReceiptUrl(personTx, settings);
+    const message = buildWhatsAppReceiptText(personTx, settings, true, personWebUrl);
+    const targetWa = (participantWaMap[person.name] ?? person.wa).trim();
+    const url = buildWhatsAppUrl(targetWa, message);
+    window.open(url, '_blank', 'noopener,noreferrer');
+  };
+
   const handleSendWhatsApp = () => {
     const message = buildWhatsAppReceiptText(tx, settings, true, webReceiptUrl);
     const url = buildWhatsAppUrl(waNumber, message);
@@ -186,7 +245,9 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
         {/* Pengiriman lewat WhatsApp Biasa */}
         <div className="bg-[#e4f1ea] border border-[#c5dfd1] rounded-xl p-3 flex flex-col gap-2">
           <label className="text-xs font-semibold text-[#1f4d3a]">
-            Kirim Struk + Link via WhatsApp Biasa
+            {splitParticipants.length > 1
+              ? 'Kirim Struk Gabungan Semua Pemesan via WhatsApp'
+              : 'Kirim Struk + Link via WhatsApp Biasa'}
           </label>
           <div className="flex gap-2">
             <input
@@ -209,6 +270,57 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
             Link struk digital website otomatis ikut terkirim di pesan WhatsApp.
           </div>
         </div>
+
+        {/* Kirim Struk Terpisah per Pemesan (Split Bill WhatsApp) */}
+        {splitParticipants.length > 1 && (
+          <div className="bg-[#eef2ff] border border-[#c7d2fe] rounded-xl p-3 flex flex-col gap-2.5">
+            <div>
+              <div className="text-xs font-bold text-[#3730a3]">
+                👥 Kirim Struk Terpisah per Pemesan (Split Bill)
+              </div>
+              <div className="text-[11px] text-[#4338ca]">
+                Setiap pemesan menerima Link Struk Digital berisi khusus menu &amp; nominal pesanannya sendiri:
+              </div>
+            </div>
+            {splitParticipants.map((p) => {
+              const currentWa = participantWaMap[p.name] ?? p.wa;
+              return (
+                <div
+                  key={p.name}
+                  className="bg-white border border-[#c7d2fe] rounded-lg p-2.5 flex flex-col gap-1.5"
+                >
+                  <div className="flex justify-between items-center text-xs">
+                    <span className="font-bold text-[#1f1e1d]">
+                      👤 {p.name}{' '}
+                      <span className="font-normal text-[#6b6a68]">
+                        ({p.items.reduce((s, i) => s + i.jumlah, 0)} item)
+                      </span>
+                    </span>
+                    <span className="font-bold text-[#1F7A5A]">{formatRupiah(p.subtotal)}</span>
+                  </div>
+                  <div className="flex gap-1.5">
+                    <input
+                      type="tel"
+                      value={currentWa}
+                      onChange={(e) =>
+                        setParticipantWaMap((prev) => ({ ...prev, [p.name]: e.target.value }))
+                      }
+                      placeholder={`No. WA ${p.name} (0812...)`}
+                      className="flex-1 h-8 rounded-lg border border-[#d6d3c8] px-2.5 text-xs"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => handleSendSplitParticipantWa(p)}
+                      className="h-8 px-2.5 rounded-lg bg-[#4338ca] hover:bg-[#3730a3] text-white text-[11px] font-semibold inline-flex items-center gap-1 shrink-0"
+                    >
+                      <MessageCircle size={12} /> Kirim Struk {p.name}
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
 
         {/* Link Struk Digital (Website — Tanpa Beban Storage) */}
         <div className="flex flex-col gap-1.5">

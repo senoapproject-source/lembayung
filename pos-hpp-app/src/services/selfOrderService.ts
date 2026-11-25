@@ -33,6 +33,7 @@ export interface SelfOrderMeta {
 
 export interface SelfOrderCartItem extends SavedOrderItem {
   participantName?: string;
+  participantWa?: string;
   selfOrderMeta?: SelfOrderMeta;
 }
 
@@ -275,6 +276,7 @@ export async function createGroupOrderRoom(params: {
             jumlah: it.jumlah,
             catatan: it.catatan?.trim() || undefined,
             participantName: params.hostName.trim(),
+            participantWa: params.hostWa.trim() || undefined,
             ...(idx === 0 ? { selfOrderMeta: meta } : {}),
           }))
         : [
@@ -285,6 +287,7 @@ export async function createGroupOrderRoom(params: {
               hargaJual: 0,
               jumlah: 0,
               participantName: params.hostName.trim(),
+              participantWa: params.hostWa.trim() || undefined,
               selfOrderMeta: meta,
             },
           ];
@@ -320,6 +323,7 @@ export async function upsertGroupParticipantItems(params: {
   outletId: string;
   orderId: string;
   participantName: string;
+  participantWa?: string;
   items: Array<{ menu: MenuItem; jumlah: number; catatan?: string }>;
 }): Promise<{ success: boolean; updatedOrder?: SavedOrder; error?: string }> {
   try {
@@ -334,6 +338,7 @@ export async function upsertGroupParticipantItems(params: {
     }
 
     const cleanName = params.participantName.trim();
+    const cleanWa = (params.participantWa || '').trim() || undefined;
     const otherItems = (existing.items as SelfOrderCartItem[]).filter(
       (it) =>
         it.menuId !== '__GROUP_HOLDER__' &&
@@ -348,6 +353,7 @@ export async function upsertGroupParticipantItems(params: {
       jumlah: it.jumlah,
       catatan: it.catatan?.trim() || undefined,
       participantName: cleanName,
+      participantWa: cleanWa,
     }));
 
     const combined: SelfOrderCartItem[] = [...otherItems, ...myNewItems];
@@ -428,6 +434,7 @@ export async function submitSelfOrderToCashier(params: {
     jumlah: number;
     catatan?: string;
     participantName?: string;
+    participantWa?: string;
   }>;
 }): Promise<{ success: boolean; orderId?: string; error?: string }> {
   const realItems = params.items.filter((i) => i.menuId !== '__GROUP_HOLDER__' && i.jumlah > 0);
@@ -475,6 +482,7 @@ export async function submitSelfOrderToCashier(params: {
         jumlah: it.jumlah,
         catatan: effectiveNote,
         participantName: pName || fullMeta.customerName,
+        participantWa: (it.participantWa || '').trim() || (pName === fullMeta.customerName ? fullMeta.customerWa : undefined),
         ...(idx === 0 ? { selfOrderMeta: fullMeta } : {}),
       };
     });
