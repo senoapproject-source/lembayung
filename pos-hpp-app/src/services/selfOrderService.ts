@@ -56,6 +56,38 @@ export function getOrCreateSelfOrderDeviceId(): string {
   }
 }
 
+/**
+ * Catat daftar nama pemesan yang diinput dari HP ini pada suatu kamar Pesan Bareng
+ * agar walaupun halaman di-refresh atau item lama belum punya participantDeviceId,
+ * pemilik pesanan tetap selalu bisa mengedit pesanannya sendiri.
+ */
+export function rememberOwnedParticipantInGroup(groupOrderId: string, participantName: string): void {
+  if (!groupOrderId || !participantName.trim()) return;
+  try {
+    const key = `lembayung_owned_${groupOrderId.trim()}`;
+    const raw = localStorage.getItem(key);
+    const list: string[] = raw ? JSON.parse(raw) : [];
+    const norm = participantName.trim().toLowerCase();
+    if (!list.includes(norm)) {
+      list.push(norm);
+      localStorage.setItem(key, JSON.stringify(list));
+    }
+  } catch {
+    // ignore storage errors
+  }
+}
+
+export function getOwnedParticipantsInGroup(groupOrderId: string): string[] {
+  if (!groupOrderId) return [];
+  try {
+    const key = `lembayung_owned_${groupOrderId.trim()}`;
+    const raw = localStorage.getItem(key);
+    return raw ? (JSON.parse(raw) as string[]) : [];
+  } catch {
+    return [];
+  }
+}
+
 export interface PublicStoreCatalog {
   outletId: string;
   namaUsaha: string;
@@ -330,6 +362,7 @@ export async function createGroupOrderRoom(params: {
     );
 
     if (error) return { success: false, error: error.message };
+    rememberOwnedParticipantInGroup(orderId, params.hostName.trim());
     return { success: true, orderId, groupCode: code };
   } catch (err) {
     return {
@@ -372,12 +405,27 @@ export async function upsertGroupParticipantItems(params: {
         (it.participantName || '').trim().toLowerCase() === cleanName.toLowerCase()
     );
     const ownerDeviceId = existingSameNameItems.find((it) => it.participantDeviceId)?.participantDeviceId;
-    if (existingSameNameItems.length > 0 && ownerDeviceId !== callerDeviceId) {
+    const existingWa = existingSameNameItems
+      .find((it) => it.participantWa)
+      ?.participantWa?.replace(/\D/g, '');
+    const callerWaDigits = (cleanWa || '').replace(/\D/g, '');
+    const locallyOwned = getOwnedParticipantsInGroup(existing.id).includes(cleanName.toLowerCase());
+    const waMatchesOwner = Boolean(existingWa && callerWaDigits && existingWa === callerWaDigits);
+
+    if (
+      existingSameNameItems.length > 0 &&
+      ownerDeviceId &&
+      ownerDeviceId !== callerDeviceId &&
+      !locallyOwned &&
+      !waMatchesOwner
+    ) {
       return {
         success: false,
         error: `Nama "${cleanName}" sudah digunakan oleh teman dari HP lain. Pesanan milik "${cleanName}" hanya bisa diubah dari HP miliknya sendiri. Silakan gunakan nama panggilan lain (mis. "${cleanName} 2").`,
       };
     }
+
+    rememberOwnedParticipantInGroup(existing.id, cleanName);
 
     const otherItems = (existing.items as SelfOrderCartItem[]).filter(
       (it) =>

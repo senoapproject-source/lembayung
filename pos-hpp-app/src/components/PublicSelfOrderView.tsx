@@ -10,6 +10,8 @@ import {
   formatModeLabel,
   formatStageLabel,
   getOrCreateSelfOrderDeviceId,
+  getOwnedParticipantsInGroup,
+  rememberOwnedParticipantInGroup,
   removeGroupParticipantItems,
   submitSelfOrderToCashier,
   upsertGroupParticipantItems,
@@ -302,6 +304,11 @@ export const PublicSelfOrderView: React.FC = () => {
         alert(res.error || 'Gagal menyimpan ke Keranjang Bareng.');
         return;
       }
+      rememberOwnedParticipantInGroup(groupOrderId, targetPerson);
+      sessionStorage.setItem('lembayung_so_name', targetPerson);
+      if (participantWa.trim()) {
+        sessionStorage.setItem('lembayung_so_wa', participantWa.trim());
+      }
       if (res.updatedOrder) setSharedOrder(res.updatedOrder);
       // Kosongkan keranjang lokal setelah masuk ke Keranjang Bersama agar teman lain yang numpang HP bisa langsung input pesanan baru!
       setMyCart([]);
@@ -491,6 +498,22 @@ export const PublicSelfOrderView: React.FC = () => {
     const items = ((sharedOrder?.items as SelfOrderCartItem[]) || []).filter(
       (i) => i.menuId !== '__GROUP_HOLDER__' && i.jumlah > 0
     );
+    const ownedNames = new Set(getOwnedParticipantsInGroup(groupOrderId));
+    const sessionNameNorm = (
+      sessionStorage.getItem('lembayung_so_name') ||
+      participantName ||
+      customerName ||
+      ''
+    )
+      .trim()
+      .toLowerCase();
+    const sessionWaDigits = (
+      sessionStorage.getItem('lembayung_so_wa') ||
+      participantWa ||
+      customerWa ||
+      ''
+    ).replace(/\D/g, '');
+
     const map = new Map<
       string,
       {
@@ -506,11 +529,32 @@ export const PublicSelfOrderView: React.FC = () => {
     for (const it of items) {
       const pName = (it.participantName || 'Pemesan').trim();
       const key = pName.toLowerCase();
+      const itemWaDigits = (it.participantWa || '').replace(/\D/g, '');
+
+      // Cek apakah pesanan ini milik HP ini:
+      // 1) participantDeviceId cocok dengan myDeviceId, ATAU
+      // 2) Nama pemesan tercatat di daftar ownedNames HP ini pada kamar ini, ATAU
+      // 3) Pesanan lama (belum punya participantDeviceId) dan namanya/WA-nya sama dengan session HP ini
+      const checkIsMine = (devId?: string, waDigits?: string) => {
+        if (devId) {
+          return (
+            devId === myDeviceId ||
+            ownedNames.has(key) ||
+            Boolean(waDigits && sessionWaDigits && waDigits === sessionWaDigits)
+          );
+        }
+        return (
+          ownedNames.has(key) ||
+          (Boolean(sessionNameNorm) && key === sessionNameNorm) ||
+          Boolean(waDigits && sessionWaDigits && waDigits === sessionWaDigits)
+        );
+      };
+
       const prev = map.get(key) || {
         name: pName,
         wa: it.participantWa,
         deviceId: it.participantDeviceId,
-        isMine: Boolean(it.participantDeviceId && it.participantDeviceId === myDeviceId),
+        isMine: checkIsMine(it.participantDeviceId, itemWaDigits),
         total: 0,
         qty: 0,
         items: [],
@@ -518,15 +562,23 @@ export const PublicSelfOrderView: React.FC = () => {
       if (!prev.wa && it.participantWa) prev.wa = it.participantWa;
       if (!prev.deviceId && it.participantDeviceId) {
         prev.deviceId = it.participantDeviceId;
-        prev.isMine = it.participantDeviceId === myDeviceId;
       }
+      prev.isMine = checkIsMine(prev.deviceId, (prev.wa || '').replace(/\D/g, ''));
       prev.total += it.hargaJual * it.jumlah;
       prev.qty += it.jumlah;
       prev.items.push(it);
       map.set(key, prev);
     }
     return Array.from(map.values());
-  }, [sharedOrder?.items, myDeviceId]);
+  }, [
+    sharedOrder?.items,
+    myDeviceId,
+    groupOrderId,
+    participantName,
+    customerName,
+    participantWa,
+    customerWa,
+  ]);
 
   if (loading) {
     return (
