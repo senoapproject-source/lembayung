@@ -296,17 +296,30 @@ async function main() {
     currentRow,
   });
 
-  // Saat rilis ke Production (mis. v1.8.0), otomatis samakan Testing ke v1.8.0
-  // supaya siklus testing berikutnya lanjut rapi di v1.8.1, v1.8.2, dst.
+  // Saat rilis ke Production (mis. v1.8.0), selaraskan Testing HANYA jika versi Production >= versi Testing saat ini
+  // (JANGAN PERNAH menurunkan versi Testing di bawah versi yang sudah terpasang di HP Testing, mis. 1.8.5 -> 1.8.0!)
   if (isProdMode && !skipSyncTesting) {
-    const nextTestingVersion = normalizeSemver(nextVersion);
+    const sbTesting = createSupabaseForMode('testing');
+    const { data: testingRow } = await sbTesting
+      .from('app_versions')
+      .select('*')
+      .eq('id', 'android')
+      .maybeSingle();
+    const currentTestingVer = normalizeSemver(testingRow?.latest_version || '1.0.0');
+    const prodSemver = normalizeSemver(nextVersion);
+    const nextTestingVersion =
+      compareSemver(prodSemver, currentTestingVer) >= 0
+        ? prodSemver
+        : bumpPatchVersion(currentTestingVer);
+
     console.log(
-      `\n🔄 Menyelaraskan Lembayung Testing ke v${nextTestingVersion} (mengikuti rilis Production v${nextVersion})...`
+      `\n🔄 Menyelaraskan Lembayung Testing ke v${nextTestingVersion} (mengikuti rilis Production v${nextVersion}, menjaga >= v${currentTestingVer})...`
     );
     await publishTarget({
       mode: 'testing',
       version: nextTestingVersion,
       notes: `Pembaruan terbaru Lembayung v${nextVersion} siap digunakan.`,
+      currentRow: testingRow,
     });
   }
 
