@@ -399,6 +399,22 @@ export async function upsertGroupParticipantItems(params: {
 }
 
 /**
+ * Hapus seluruh pilihan menu milik 1 peserta dari kamar Pesan Bareng
+ */
+export async function removeGroupParticipantItems(params: {
+  outletId: string;
+  orderId: string;
+  participantName: string;
+}): Promise<{ success: boolean; updatedOrder?: SavedOrder; error?: string }> {
+  return upsertGroupParticipantItems({
+    outletId: params.outletId,
+    orderId: params.orderId,
+    participantName: params.participantName,
+    items: [],
+  });
+}
+
+/**
  * Kirim pesanan Self-Order (mandiri maupun finalisasi Pesan Bareng) ke Kasir Toko
  */
 export async function submitSelfOrderToCashier(params: {

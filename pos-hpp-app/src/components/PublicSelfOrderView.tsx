@@ -9,6 +9,7 @@ import {
   fetchPublicStoreCatalog,
   formatModeLabel,
   formatStageLabel,
+  removeGroupParticipantItems,
   submitSelfOrderToCashier,
   upsertGroupParticipantItems,
   type PublicStoreCatalog,
@@ -23,11 +24,14 @@ import {
   MessageCircle,
   Minus,
   Navigation,
+  Pencil,
   Plus,
   Search,
   Share2,
   ShoppingBag,
   Store,
+  Trash2,
+  UserPlus,
   Users,
 } from 'lucide-react';
 
@@ -76,6 +80,10 @@ export const PublicSelfOrderView: React.FC = () => {
   const [orderCompletedPaid, setOrderCompletedPaid] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
   const [groupSyncMsg, setGroupSyncMsg] = useState('');
+  // Nama pemesan yang sedang diinput di HP ini (bisa berganti-ganti jika ada teman numpang order di 1 HP yang sama)
+  const [participantName, setParticipantName] = useState(
+    () => sessionStorage.getItem('lembayung_so_name') || ''
+  );
 
   const isHost = useMemo(() => {
     if (!groupOrderId) return true;
@@ -241,6 +249,16 @@ export const PublicSelfOrderView: React.FC = () => {
       }
       sessionStorage.setItem(`lembayung_host_${res.orderId}`, '1');
       setGroupOrderId(res.orderId);
+      // Jika Host tadi sudah pilih menu awal, kosongkan myCart karena sudah tersimpan di Keranjang Bersama,
+      // sehingga HP ini siap dipakai sendiri atau dipinjam teman yang HP-nya lowbat
+      if (myCart.length > 0) {
+        setMyCart([]);
+        setGroupSyncMsg(
+          `Kamar Pesan Bareng dibuat & pilihan ${customerName.trim()} sudah masuk! Teman yang numpang HP bisa ganti nama di bawah.`
+        );
+      } else {
+        setParticipantName(customerName.trim());
+      }
       const nextUrl = buildSelfOrderUrl(outletIdParam, {
         group: res.orderId,
         customBaseUrl: window.location.origin,
@@ -251,24 +269,24 @@ export const PublicSelfOrderView: React.FC = () => {
     }
   };
 
-  // Teman menyimpan pilihannya ke Keranjang Bersama
+  // Simpan pilihan menu untuk 1 nama pemesan ke Keranjang Bersama (mendukung beberapa teman numpang di 1 HP!)
   const handleSaveMyGroupItems = async () => {
-    if (!customerName.trim()) {
-      alert('Masukkan Nama Panggilan Anda terlebih dahulu.');
+    const targetPerson = (participantName || customerName).trim();
+    if (!targetPerson) {
+      alert('Masukkan Nama Panggilan pemesan terlebih dahulu.');
       return;
     }
     if (myCart.length === 0) {
       alert('Pilih minimal 1 menu untuk dimasukkan ke Keranjang Bareng.');
       return;
     }
-    sessionStorage.setItem('lembayung_so_name', customerName.trim());
     setSubmitting(true);
     setGroupSyncMsg('');
     try {
       const res = await upsertGroupParticipantItems({
         outletId: outletIdParam,
         orderId: groupOrderId,
-        participantName: customerName.trim(),
+        participantName: targetPerson,
         items: myCart,
       });
       if (!res.success) {
@@ -276,8 +294,47 @@ export const PublicSelfOrderView: React.FC = () => {
         return;
       }
       if (res.updatedOrder) setSharedOrder(res.updatedOrder);
-      setGroupSyncMsg(`Pilihan menu ${customerName.trim()} berhasil masuk ke Keranjang Bareng!`);
-      setTimeout(() => setGroupSyncMsg(''), 3500);
+      // Kosongkan keranjang lokal setelah masuk ke Keranjang Bersama agar teman lain yang numpang HP bisa langsung input pesanan baru!
+      setMyCart([]);
+      setGroupSyncMsg(
+        `✓ Pesanan "${targetPerson}" sudah masuk ke Keranjang Bareng! Jika ada teman yang numpang order di HP ini, klik "+ Numpang Order Teman Lain".`
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  // Muat kembali pesanan salah satu orang dari Keranjang Bersama untuk diedit di HP ini
+  const handleEditParticipantFromGroup = (personName: string, items: SelfOrderCartItem[]) => {
+    const menuMap = new Map((catalog?.menus || []).map((m) => [m.id, m]));
+    const restored: LocalCartEntry[] = items
+      .map((it) => {
+        const m = menuMap.get(it.menuId);
+        if (!m) return null;
+        return {
+          menu: m,
+          jumlah: it.jumlah,
+          catatan: it.catatan || '',
+        };
+      })
+      .filter((x): x is LocalCartEntry => Boolean(x));
+    setParticipantName(personName);
+    setMyCart(restored);
+    setGroupSyncMsg(`Sedang mengubah pesanan milik "${personName}". Klik Simpan ke Keranjang Bareng jika selesai.`);
+  };
+
+  const handleRemoveParticipantFromGroup = async (personName: string) => {
+    if (!confirm(`Hapus pesanan milik "${personName}" dari Keranjang Bersama?`)) return;
+    setSubmitting(true);
+    try {
+      const res = await removeGroupParticipantItems({
+        outletId: outletIdParam,
+        orderId: groupOrderId,
+        participantName: personName,
+      });
+      if (res.success && res.updatedOrder) {
+        setSharedOrder(res.updatedOrder);
+      }
     } finally {
       setSubmitting(false);
     }
@@ -285,25 +342,32 @@ export const PublicSelfOrderView: React.FC = () => {
 
   // Kirim Pesanan (Mandiri atau Finalisasi Group Order) ke Kasir Toko
   const handleSubmitOrderToStore = async () => {
-    if (!customerName.trim()) {
+    const sharedMeta = sharedOrder ? extractSelfOrderMeta(sharedOrder) : null;
+    const effectiveHostName = (sharedMeta?.hostName || customerName || participantName).trim();
+    const effectiveMode = sharedMeta?.mode || mode;
+    const effectiveWa = (sharedMeta?.customerWa || customerWa).trim();
+    const effectiveTable = (sharedMeta?.tableNumber || tableNumber).trim();
+    const effectivePickup = (sharedMeta?.pickupTime || pickupTime).trim();
+    const effectiveAddress = (sharedMeta?.deliveryAddress || deliveryAddress).trim();
+    const effectiveLandmark = (sharedMeta?.deliveryLandmark || deliveryLandmark).trim();
+    const effectiveMaps = (sharedMeta?.mapsUrl || mapsUrl).trim();
+
+    if (!effectiveHostName) {
       alert('Nama Pemesan wajib diisi.');
       return;
     }
-    if (mode === 'dine_in' && !tableNumber.trim()) {
+    if (effectiveMode === 'dine_in' && !effectiveTable) {
       alert('Nomor Meja wajib diisi untuk Makan di Tempat.');
       return;
     }
-    if ((mode === 'delivery' || mode === 'pickup') && customerWa.replace(/\D/g, '').length < 9) {
+    if ((effectiveMode === 'delivery' || effectiveMode === 'pickup') && effectiveWa.replace(/\D/g, '').length < 9) {
       alert('Nomor WhatsApp aktif wajib diisi untuk konfirmasi pesanan.');
       return;
     }
-    if (mode === 'delivery' && !deliveryAddress.trim()) {
+    if (effectiveMode === 'delivery' && !effectiveAddress) {
       alert('Alamat pengantaran lengkap wajib diisi untuk Pesan Antar.');
       return;
     }
-
-    sessionStorage.setItem('lembayung_so_name', customerName.trim());
-    sessionStorage.setItem('lembayung_so_wa', customerWa.trim());
 
     setSubmitting(true);
     try {
@@ -317,22 +381,27 @@ export const PublicSelfOrderView: React.FC = () => {
       }> = [];
 
       if (groupOrderId && sharedOrder) {
-        // Gabungkan item teman-teman di sharedOrder + item Host saat ini di myCart
-        const cleanHost = customerName.trim();
-        const others = (sharedOrder.items as SelfOrderCartItem[]).filter(
-          (i) =>
-            i.menuId !== '__GROUP_HOLDER__' &&
-            (i.participantName || '').trim().toLowerCase() !== cleanHost.toLowerCase()
+        const currentPerson = (participantName || effectiveHostName).trim();
+        const existingGroupItems = (sharedOrder.items as SelfOrderCartItem[]).filter(
+          (i) => i.menuId !== '__GROUP_HOLDER__' && i.jumlah > 0
         );
-        const hostItems = myCart.map((c) => ({
-          menuId: c.menu.id,
-          menuNama: c.menu.nama,
-          hargaJual: c.menu.hargaJual,
-          jumlah: c.jumlah,
-          catatan: c.catatan,
-          participantName: cleanHost,
-        }));
-        itemsToSend = [...others, ...hostItems];
+        if (myCart.length > 0) {
+          // Jika masih ada item di layar yang belum sempat diklik "Masukkan ke Keranjang Bareng", ikut sertakan otomatis untuk currentPerson
+          const others = existingGroupItems.filter(
+            (i) => (i.participantName || '').trim().toLowerCase() !== currentPerson.toLowerCase()
+          );
+          const unsavedCurrent = myCart.map((c) => ({
+            menuId: c.menu.id,
+            menuNama: c.menu.nama,
+            hargaJual: c.menu.hargaJual,
+            jumlah: c.jumlah,
+            catatan: c.catatan,
+            participantName: currentPerson,
+          }));
+          itemsToSend = [...others, ...unsavedCurrent];
+        } else {
+          itemsToSend = existingGroupItems;
+        }
       } else {
         itemsToSend = myCart.map((c) => ({
           menuId: c.menu.id,
@@ -340,26 +409,25 @@ export const PublicSelfOrderView: React.FC = () => {
           hargaJual: c.menu.hargaJual,
           jumlah: c.jumlah,
           catatan: c.catatan,
-          participantName: customerName.trim(),
+          participantName: effectiveHostName,
         }));
       }
 
-      const sharedMeta = sharedOrder ? extractSelfOrderMeta(sharedOrder) : null;
       const res = await submitSelfOrderToCashier({
         outletId: outletIdParam,
         existingGroupOrderId: groupOrderId || undefined,
         meta: {
-          mode: sharedMeta?.mode || mode,
-          customerName: customerName.trim(),
-          customerWa: customerWa.trim() || undefined,
-          tableNumber: tableNumber.trim() || undefined,
-          pickupTime: pickupTime.trim() || undefined,
-          deliveryAddress: deliveryAddress.trim() || undefined,
-          deliveryLandmark: deliveryLandmark.trim() || undefined,
-          mapsUrl: mapsUrl.trim() || undefined,
+          mode: effectiveMode,
+          customerName: effectiveHostName,
+          customerWa: effectiveWa || undefined,
+          tableNumber: effectiveTable || undefined,
+          pickupTime: effectivePickup || undefined,
+          deliveryAddress: effectiveAddress || undefined,
+          deliveryLandmark: effectiveLandmark || undefined,
+          mapsUrl: effectiveMaps || undefined,
           isGroupOrder: Boolean(groupOrderId),
           groupCode: sharedMeta?.groupCode,
-          hostName: sharedMeta?.hostName || customerName.trim(),
+          hostName: effectiveHostName,
         },
         items: itemsToSend,
       });
@@ -664,9 +732,9 @@ export const PublicSelfOrderView: React.FC = () => {
               </button>
             </div>
 
-            {/* Ringkian Keranjang Bersama & Split Bill Real-Time */}
+            {/* Ringkasan Keranjang Bersama & Split Bill Real-Time (+ Edit/Hapus jika numpang 1 HP) */}
             {splitBillSummary.length > 0 && (
-              <div className="bg-white rounded-xl p-3 border border-[#c7d2fe] flex flex-col gap-1.5 text-xs">
+              <div className="bg-white rounded-xl p-3 border border-[#c7d2fe] flex flex-col gap-2 text-xs">
                 <div className="font-bold text-[#1f1e1d] flex items-center justify-between">
                   <span>Keranjang Bersama ({splitBillSummary.length} orang)</span>
                   <span className="text-[#1F7A5A]">
@@ -674,13 +742,33 @@ export const PublicSelfOrderView: React.FC = () => {
                   </span>
                 </div>
                 {splitBillSummary.map((p) => (
-                  <div key={p.name} className="border-t border-[#eeece5] pt-1.5 flex flex-col gap-0.5">
-                    <div className="flex justify-between font-semibold">
-                      <span>👤 {p.name}</span>
-                      <span className="text-[#1F7A5A]">{formatRupiah(p.total)}</span>
+                  <div key={p.name} className="border-t border-[#eeece5] pt-2 flex flex-col gap-1">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-semibold text-[#1f1e1d]">👤 {p.name}</span>
+                      <div className="flex items-center gap-1.5">
+                        <span className="font-bold text-[#1F7A5A]">{formatRupiah(p.total)}</span>
+                        <button
+                          type="button"
+                          onClick={() => handleEditParticipantFromGroup(p.name, p.items)}
+                          title="Ubah pilihan menu orang ini di HP ini"
+                          className="h-6 px-2 rounded-md border border-[#d6d3c8] bg-[#faf9f5] hover:bg-[#ece9e0] text-[10px] font-semibold text-[#4a4947] inline-flex items-center gap-1"
+                        >
+                          <Pencil size={10} /> Ubah
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveParticipantFromGroup(p.name)}
+                          title="Hapus pesanan orang ini"
+                          className="h-6 px-1.5 rounded-md border border-[#f5c2bc] bg-[#fdf7f6] hover:bg-[#fbe4e1] text-[#9b1c12] inline-flex items-center"
+                        >
+                          <Trash2 size={10} />
+                        </button>
+                      </div>
                     </div>
                     <div className="text-[11px] text-[#6b6a68]">
-                      {p.items.map((i) => `${i.menuNama} ×${i.jumlah}`).join(', ')}
+                      {p.items
+                        .map((i) => `${i.menuNama} ×${i.jumlah}${i.catatan ? ` (${i.catatan})` : ''}`)
+                        .join(', ')}
                     </div>
                   </div>
                 ))}
@@ -843,20 +931,36 @@ export const PublicSelfOrderView: React.FC = () => {
           </div>
         )}
 
-        {/* Jika peserta bergabung ke Group Order, minta Nama Panggilan */}
+        {/* Box Input Nama Pemesan di Mode Pesan Bareng + Tombol Numpang Order Teman Lain di 1 HP */}
         {groupOrderId && (
-          <div className="bg-white border border-[#e2e0d8] rounded-2xl p-3.5 flex items-center gap-3">
-            <div className="flex-1">
-              <label className="block text-[11px] font-semibold text-[#4a4947] mb-1">
-                Nama Panggilan Anda (untuk label makanan &amp; hitung patungan) *
+          <div className="bg-white border border-[#e2e0d8] rounded-2xl p-3.5 flex flex-col gap-2.5">
+            <div className="flex items-center justify-between gap-2">
+              <label className="block text-[11px] font-semibold text-[#4a4947]">
+                Sedang Memilih Menu untuk Siapa di HP Ini? *
               </label>
-              <input
-                type="text"
-                value={customerName}
-                onChange={(e) => setCustomerName(e.target.value)}
-                placeholder="Contoh: Budi"
-                className="w-full h-9 border border-[#d6d3c8] rounded-xl px-3 text-xs"
-              />
+              <button
+                type="button"
+                onClick={() => {
+                  setParticipantName('');
+                  setMyCart([]);
+                  setGroupSyncMsg('Silakan ketik nama teman yang numpang order lalu pilih menunya.');
+                }}
+                className="h-7 px-2.5 rounded-lg bg-[#eef2ff] border border-[#c7d2fe] text-[#3730a3] text-[11px] font-semibold inline-flex items-center gap-1 shrink-0"
+              >
+                <UserPlus size={12} /> + Numpang Order Teman Lain
+              </button>
+            </div>
+            <input
+              type="text"
+              value={participantName}
+              onChange={(e) => setParticipantName(e.target.value)}
+              placeholder="Ketik nama pemesan (mis. Budi / Andi)"
+              className="w-full h-9 border border-[#d6d3c8] rounded-xl px-3 text-xs font-semibold text-[#1f1e1d] focus:outline-none focus:border-[#4338ca]"
+            />
+            <div className="text-[11px] text-[#6b6a68]">
+              💡 <strong>Ada teman yang HP-nya lowbat?</strong> Setelah Anda klik{' '}
+              <strong>&ldquo;Masukkan ke Keranjang Bareng&rdquo;</strong>, klik tombol{' '}
+              <strong>&ldquo;+ Numpang Order Teman Lain&rdquo;</strong> di atas untuk ganti nama dan memilihkan menu teman Anda dari HP ini juga.
             </div>
           </div>
         )}
