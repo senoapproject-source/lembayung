@@ -1,6 +1,10 @@
 import { v4 as uuidv4 } from 'uuid';
 import { db } from '../db/database';
 import { getSupabaseClient, getSupabaseConfig, getWebBackofficeUrl } from './syncService';
+import {
+  evaluateStoreOpenStatus,
+  unpackStoreHoursFromWorkShifts,
+} from './branchService';
 import type { MenuItem, SavedOrder, SavedOrderItem } from '../types/models';
 
 export type SelfOrderMode = 'dine_in' | 'pickup' | 'delivery';
@@ -151,7 +155,14 @@ export async function fetchPublicStoreCatalog(outletId: string): Promise<{
     }
 
     const row = outletRes.data as Record<string, any>;
-    const openShifts = (shiftRes.data as Array<{ kasir_nama?: string }> | null) || [];
+    const openShifts = (shiftRes.data as Array<{ kasir_nama?: string; waktu_buka?: string }> | null) || [];
+    const hoursCfg = unpackStoreHoursFromWorkShifts(row.work_shifts);
+    const evalOpen = evaluateStoreOpenStatus({
+      hasOpenShift: openShifts.length > 0,
+      activeCashierName: openShifts[0]?.kasir_nama,
+      shiftOpenedAt: openShifts[0]?.waktu_buka,
+      hoursConfig: hoursCfg,
+    });
     const menus: MenuItem[] = ((menusRes.data as Array<Record<string, any>>) || []).map((m) => ({
       id: m.id,
       recipeId: m.recipe_id || '',
@@ -172,8 +183,8 @@ export async function fetchPublicStoreCatalog(outletId: string): Promise<{
         alamatUsaha: row.alamat_usaha || '-',
         teleponUsaha: row.telepon_usaha || '',
         logoUsaha: row.logo_usaha || undefined,
-        isStoreOpen: openShifts.length > 0,
-        activeCashierName: openShifts[0]?.kasir_nama,
+        isStoreOpen: evalOpen.isStoreOpen,
+        activeCashierName: openShifts[0]?.kasir_nama || evalOpen.statusDetail,
         menus,
       },
     };

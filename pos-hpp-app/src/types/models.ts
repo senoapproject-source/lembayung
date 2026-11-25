@@ -270,6 +270,10 @@ export interface AppSettings {
   namaCabang?: string; // Nama cabang, misal: "Pusat", "Cabang Sudirman"
   workShifts?: WorkShiftSchedule[]; // Master jadwal shift kerja (Pagi, Middle, Sore, Malam)
   kasirAuthPin?: string; // PIN Otorisasi 6 angka khusus masuk Mode Kasir & hapus Open Bill
+  autoStoreHoursEnabled?: boolean; // Aktifkan jam buka & tutup toko otomatis
+  storeOpenTime?: string; // Jam buka otomatis (HH:mm), default '08:00'
+  storeCloseTime?: string; // Jam tutup otomatis (HH:mm), default '22:00'
+  storeManualOverride?: 'auto' | 'force_open' | 'force_closed'; // Override manual 1-klik oleh Owner
 }
 
 export interface BranchInfo {
@@ -285,6 +289,7 @@ export interface BranchInfo {
   isStoreOpen?: boolean;
   activeCashierName?: string;
   shiftOpenedAt?: string;
+  storeHoursLabel?: string;
   updatedAt: string;
 }
 

@@ -37,8 +37,13 @@ import { checkEmailDuplicateInCloud, sendEmployeeCredentialsEmail } from '../ser
 import { compressLogoFileToDataUrl } from '../lib/receipt';
 import { CustomSelect } from '../components/CustomSelect';
 import { SelfOrderShareModal } from '../components/SelfOrderShareModal';
+import {
+  evaluateStoreOpenStatus,
+  packWorkShiftsWithStoreHours,
+  toggleStoreOpenByOwner,
+} from '../services/branchService';
 import type { AppSettings, RoundingStep, User } from '../types/models';
-import { AlertCircle, Check, Copy, LogOut, QrCode, RotateCcw, Store, Trash2, Upload, X } from 'lucide-react';
+import { AlertCircle, Check, Clock, Copy, LogOut, Power, QrCode, RotateCcw, Store, Trash2, Upload, X } from 'lucide-react';
 
 const FALLBACK_SETTINGS: AppSettings = {
   id: 'global',
@@ -80,6 +85,8 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   const rawSettings = useLiveQuery(() => db.settings.get('global'));
   const users = useLiveQuery(() => db.users.toArray()) ?? [];
   const categories = useLiveQuery(() => db.expenseCategories.toArray()) ?? [];
+  const openShift = useLiveQuery(() => db.cashierShifts.where('status').equals('open').first());
+  const [togglingStore, setTogglingStore] = useState(false);
 
   // Modal Tambah/Atur User
   const [showAddUser, setShowAddUser] = useState(false);
@@ -673,6 +680,192 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
           onClose={() => setShowSelfOrderModal(false)}
         />
       )}
+
+      {/* Status Operasional Toko (1-Klik Buka/Tutup Owner) & Jam Buka-Tutup Otomatis */}
+      {user.role === 'owner' && (() => {
+        const evalOpen = evaluateStoreOpenStatus({
+          hasOpenShift: Boolean(openShift),
+          activeCashierName: openShift?.kasirNama,
+          shiftOpenedAt: openShift?.waktuBuka,
+          hoursConfig: {
+            autoStoreHoursEnabled: settings.autoStoreHoursEnabled,
+            storeOpenTime: settings.storeOpenTime,
+            storeCloseTime: settings.storeCloseTime,
+            storeManualOverride: settings.storeManualOverride,
+          },
+        });
+
+        const handleSaveStoreHours = async (patch: {
+          autoStoreHoursEnabled?: boolean;
+          storeOpenTime?: string;
+          storeCloseTime?: string;
+          storeManualOverride?: 'auto' | 'force_open' | 'force_closed';
+        }) => {
+          const nextAuto = patch.autoStoreHoursEnabled ?? Boolean(settings.autoStoreHoursEnabled);
+          const nextOpen = patch.storeOpenTime ?? (settings.storeOpenTime || '08:00');
+          const nextClose = patch.storeCloseTime ?? (settings.storeCloseTime || '22:00');
+          const nextOverride = patch.storeManualOverride ?? 'auto';
+          const packedShifts = packWorkShiftsWithStoreHours(settings.workShifts, {
+            autoStoreHoursEnabled: nextAuto,
+            storeOpenTime: nextOpen,
+            storeCloseTime: nextClose,
+            storeManualOverride: nextOverride,
+          });
+          await updateSettings(
+            {
+              autoStoreHoursEnabled: nextAuto,
+              storeOpenTime: nextOpen,
+              storeCloseTime: nextClose,
+              storeManualOverride: nextOverride,
+              workShifts: packedShifts,
+            },
+            user
+          );
+          notify('Pengaturan jam operasional toko disimpan.');
+        };
+
+        return (
+          <>
+            <div className="text-xs font-semibold uppercase tracking-wide text-[#4a4947] mt-1">
+              Operasional Toko &amp; Jam Buka–Tutup Otomatis
+            </div>
+            <div className="bg-white border border-[#e2e0d8] rounded-xl overflow-hidden divide-y divide-[#eeece5]">
+              {/* Baris 1: 1-Klik Buka / Tutup Toko oleh Owner tanpa input modal uang */}
+              <div className="px-3.5 py-3 flex flex-wrap justify-between items-center gap-3">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-semibold text-sm">Status Toko Saat Ini</span>
+                    <span
+                      className={`inline-flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-0.5 rounded-full ${
+                        evalOpen.isStoreOpen
+                          ? 'bg-[#e4f1ea] text-[#15803d]'
+                          : 'bg-[#fbe4e1] text-[#9b1c12]'
+                      }`}
+                    >
+                      <span
+                        className={`w-1.5 h-1.5 rounded-full ${
+                          evalOpen.isStoreOpen ? 'bg-[#16a34a] animate-pulse' : 'bg-[#dc2626]'
+                        }`}
+                      />
+                      {evalOpen.isStoreOpen ? 'Buka' : 'Tutup'}
+                    </span>
+                  </div>
+                  <div className="text-xs text-[#6b6a68] mt-0.5">
+                    {evalOpen.statusDetail} · Owner dapat buka/tutup langsung tanpa input modal laci
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  disabled={togglingStore}
+                  onClick={async () => {
+                    setTogglingStore(true);
+                    try {
+                      const nextOpen = !evalOpen.isStoreOpen;
+                      const res = await toggleStoreOpenByOwner({
+                        targetOpen: nextOpen,
+                        owner: user,
+                      });
+                      if (!res.success) {
+                        alert(res.error || 'Gagal mengubah status toko.');
+                      } else {
+                        notify(
+                          nextOpen
+                            ? 'Toko berhasil dibuka langsung oleh Owner.'
+                            : 'Toko berhasil ditutup oleh Owner.'
+                        );
+                      }
+                    } finally {
+                      setTogglingStore(false);
+                    }
+                  }}
+                  className={`h-9 px-3.5 rounded-xl text-xs font-semibold inline-flex items-center gap-1.5 transition shrink-0 ${
+                    evalOpen.isStoreOpen
+                      ? 'bg-[#fbe4e1] hover:bg-[#f7d0cb] text-[#9b1c12] border border-[#f5c2bc]'
+                      : 'bg-[#1F7A5A] hover:bg-[#15563f] text-white'
+                  }`}
+                >
+                  <Power size={13} />
+                  {togglingStore
+                    ? 'Memproses...'
+                    : evalOpen.isStoreOpen
+                    ? 'Tutup Toko Sekarang'
+                    : 'Buka Toko Sekarang'}
+                </button>
+              </div>
+
+              {/* Baris 2: Toggle Jam Buka & Tutup Otomatis */}
+              <div className="px-3.5 py-3 flex flex-col gap-3">
+                <div className="flex justify-between items-center gap-3">
+                  <div>
+                    <div className="font-medium text-sm flex items-center gap-1.5">
+                      <Clock size={15} className="text-[#1F7A5A]" />
+                      <span>Jam Buka &amp; Tutup Toko Otomatis</span>
+                    </div>
+                    <div className="text-xs text-[#6b6a68]">
+                      Otomatis membuka &amp; menutup toko (termasuk Self-Order pelanggan) sesuai jam operasional harian
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      handleSaveStoreHours({
+                        autoStoreHoursEnabled: !settings.autoStoreHoursEnabled,
+                        storeManualOverride: 'auto',
+                      })
+                    }
+                    className={`w-11 h-[26px] rounded-full relative transition shrink-0 ${
+                      settings.autoStoreHoursEnabled ? 'bg-[#1F7A5A]' : 'bg-[#cfcbbf]'
+                    }`}
+                  >
+                    <span
+                      className={`absolute top-[3px] w-5 h-5 rounded-full bg-white transition-all ${
+                        settings.autoStoreHoursEnabled ? 'right-[3px]' : 'left-[3px]'
+                      }`}
+                    />
+                  </button>
+                </div>
+
+                {settings.autoStoreHoursEnabled && (
+                  <div className="grid grid-cols-2 gap-3 pt-1">
+                    <div>
+                      <label className="block text-xs font-medium text-[#4a4947] mb-1">
+                        Jam Buka Otomatis
+                      </label>
+                      <input
+                        type="time"
+                        value={settings.storeOpenTime || '08:00'}
+                        onChange={(e) =>
+                          handleSaveStoreHours({
+                            storeOpenTime: e.target.value || '08:00',
+                            storeManualOverride: 'auto',
+                          })
+                        }
+                        className="w-full h-10 border border-[#d6d3c8] rounded-[10px] px-3 text-sm font-semibold text-[#1f1e1d]"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-[#4a4947] mb-1">
+                        Jam Tutup Otomatis
+                      </label>
+                      <input
+                        type="time"
+                        value={settings.storeCloseTime || '22:00'}
+                        onChange={(e) =>
+                          handleSaveStoreHours({
+                            storeCloseTime: e.target.value || '22:00',
+                            storeManualOverride: 'auto',
+                          })
+                        }
+                        className="w-full h-10 border border-[#d6d3c8] rounded-[10px] px-3 text-sm font-semibold text-[#1f1e1d]"
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </>
+        );
+      })()}
 
       {/* Tampilan & Notifikasi (Khusus Aplikasi Perangkat) */}
       {isNativeApp && (

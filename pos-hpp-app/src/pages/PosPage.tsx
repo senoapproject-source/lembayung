@@ -17,6 +17,10 @@ import {
   formatStageLabel,
   updateSelfOrderStageByCashier,
 } from '../services/selfOrderService';
+import {
+  evaluateStoreOpenStatus,
+  toggleStoreOpenByOwner,
+} from '../services/branchService';
 import type { MenuItem, PaymentMethod, SavedOrder, Transaction, User } from '../types/models';
 import {
   Bookmark,
@@ -25,6 +29,7 @@ import {
   MessageCircle,
   Minus,
   Plus,
+  Power,
   QrCode,
   Search,
   ShoppingBag,
@@ -56,6 +61,21 @@ export const PosPage: React.FC<PosPageProps> = ({ user, onOpenHistory }) => {
 
   const [search, setSearch] = useState('');
   const [showSelfOrderShare, setShowSelfOrderShare] = useState(false);
+  const [togglingOwnerStore, setTogglingOwnerStore] = useState(false);
+  const openCashierShift = useLiveQuery(() =>
+    db.cashierShifts.where('status').equals('open').first()
+  );
+  const storeOpenState = evaluateStoreOpenStatus({
+    hasOpenShift: Boolean(openCashierShift),
+    activeCashierName: openCashierShift?.kasirNama,
+    shiftOpenedAt: openCashierShift?.waktuBuka,
+    hoursConfig: {
+      autoStoreHoursEnabled: settings?.autoStoreHoursEnabled,
+      storeOpenTime: settings?.storeOpenTime,
+      storeCloseTime: settings?.storeCloseTime,
+      storeManualOverride: settings?.storeManualOverride,
+    },
+  });
   const [deleteOrderTarget, setDeleteOrderTarget] = useState<SavedOrder | null>(null);
   const [deleteOrderPin, setDeleteOrderPin] = useState('');
   const [deleteOrderReason, setDeleteOrderReason] = useState('');
@@ -480,7 +500,33 @@ export const PosPage: React.FC<PosPageProps> = ({ user, onOpenHistory }) => {
               {settings?.namaUsaha ?? 'Lembayung'} · {user.nama}
             </div>
           </div>
-          <div className="flex items-center gap-1.5 shrink-0">
+          <div className="flex items-center gap-1.5 shrink-0 flex-wrap justify-end">
+            {user.role === 'owner' && (
+              <button
+                type="button"
+                disabled={togglingOwnerStore}
+                onClick={async () => {
+                  setTogglingOwnerStore(true);
+                  try {
+                    await toggleStoreOpenByOwner({
+                      targetOpen: !storeOpenState.isStoreOpen,
+                      owner: user,
+                    });
+                  } finally {
+                    setTogglingOwnerStore(false);
+                  }
+                }}
+                title="Klik untuk Buka / Tutup Toko langsung tanpa input modal uang"
+                className={`h-9 px-2.5 sm:px-3 rounded-full border text-xs font-semibold flex items-center gap-1.5 whitespace-nowrap transition ${
+                  storeOpenState.isStoreOpen
+                    ? 'border-[#c5dfd1] bg-[#e4f1ea] text-[#15803d]'
+                    : 'border-[#f5c2bc] bg-[#fbe4e1] text-[#9b1c12]'
+                }`}
+              >
+                <Power size={13} />
+                <span>{storeOpenState.isStoreOpen ? 'Toko Buka' : 'Toko Tutup'}</span>
+              </button>
+            )}
             <button
               type="button"
               onClick={() => setShowSelfOrderShare(true)}

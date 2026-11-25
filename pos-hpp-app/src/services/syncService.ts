@@ -2,6 +2,10 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { Capacitor } from '@capacitor/core';
 import { CapacitorUpdater } from '@capgo/capacitor-updater';
 import { db } from '../db/database';
+import {
+  packWorkShiftsWithStoreHours,
+  unpackStoreHoursFromWorkShifts,
+} from './branchService';
 import type {
   AppSettings,
   AttendanceRecord,
@@ -903,10 +907,15 @@ async function pushAllLocalToSupabaseInternal(includeUsers: boolean): Promise<{
         });
     }
 
-    // Simpan master jadwal shift kerja & PIN Otorisasi Kasir jika kolom tersedia di outlets
+    // Simpan master jadwal shift kerja, jam buka-tutup otomatis, & PIN Otorisasi Kasir jika kolom tersedia di outlets
     const outletExtraPatch: Record<string, unknown> = {};
-    if (settings?.workShifts && settings.workShifts.length > 0) {
-      outletExtraPatch.work_shifts = settings.workShifts;
+    if (settings) {
+      outletExtraPatch.work_shifts = packWorkShiftsWithStoreHours(settings.workShifts, {
+        autoStoreHoursEnabled: settings.autoStoreHoursEnabled ?? false,
+        storeOpenTime: settings.storeOpenTime || '08:00',
+        storeCloseTime: settings.storeCloseTime || '22:00',
+        storeManualOverride: settings.storeManualOverride || 'auto',
+      });
     }
     if (settings?.kasirAuthPin) {
       outletExtraPatch.kasir_auth_pin = settings.kasirAuthPin;
@@ -1060,6 +1069,18 @@ export async function pullAllFromSupabase(overrideOutletId?: string): Promise<{
       ? (outletRow.work_shifts as WorkShiftSchedule[])
       : settings?.workShifts,
     kasirAuthPin: outletRow.kasir_auth_pin || settings?.kasirAuthPin,
+    ...(() => {
+      const unpacked = unpackStoreHoursFromWorkShifts(outletRow.work_shifts);
+      return {
+        autoStoreHoursEnabled:
+          outletRow.work_shifts !== null && outletRow.work_shifts !== undefined
+            ? unpacked.autoStoreHoursEnabled
+            : settings?.autoStoreHoursEnabled,
+        storeOpenTime: unpacked.storeOpenTime || settings?.storeOpenTime || '08:00',
+        storeCloseTime: unpacked.storeCloseTime || settings?.storeCloseTime || '22:00',
+        storeManualOverride: unpacked.storeManualOverride || settings?.storeManualOverride || 'auto',
+      };
+    })(),
   };
 
   // Deduplikasi users lintas cabang berdasarkan user.id (ambil versi updated_at paling baru)

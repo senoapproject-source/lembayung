@@ -6,6 +6,7 @@ import { addAuditLog, enqueueSync } from '../db/actions';
 import {
   createNewBranch,
   resetBranchKasirAuthPin,
+  toggleStoreOpenByOwner,
   updateBranchProfile,
 } from '../services/branchService';
 import { deleteUserFromSupabase, getWebBackofficeUrl } from '../services/syncService';
@@ -27,6 +28,7 @@ import {
   Pencil,
   Phone,
   Plus,
+  Power,
   Search,
   Settings,
   Shield,
@@ -72,6 +74,7 @@ export const WebBranchesTeamPage: React.FC<WebBranchesTeamPageProps> = ({
   const [ebSaving, setEbSaving] = useState(false);
   const [ebErr, setEbErr] = useState('');
   const [resettingPinOutletId, setResettingPinOutletId] = useState('');
+  const [togglingBranchId, setTogglingBranchId] = useState('');
   const [showAddBranch, setShowAddBranch] = useState(false);
   const [bNamaCabang, setBNamaCabang] = useState('');
   const [bAlamat, setBAlamat] = useState('');
@@ -653,25 +656,71 @@ export const WebBranchesTeamPage: React.FC<WebBranchesTeamPageProps> = ({
                           </td>
 
                           <td className="py-3.5 px-3 whitespace-nowrap">
-                            {b.isStoreOpen ? (
-                              <div className="flex flex-col gap-0.5">
-                                <span className="inline-flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-[#e4f1ea] text-[#15803d] w-fit">
-                                  <span className="w-1.5 h-1.5 rounded-full bg-[#16a34a] animate-pulse" />
-                                  Buka
-                                </span>
-                                {(b.activeCashierName || b.shiftOpenedAt) && (
-                                  <span className="text-[10px] text-[#6b6a68]">
-                                    {b.activeCashierName}
-                                    {b.shiftOpenedAt ? ` · ${fmtTimeOnly(b.shiftOpenedAt)}` : ''}
+                            <div className="flex flex-col gap-1">
+                              <div className="flex items-center gap-1.5">
+                                {b.isStoreOpen ? (
+                                  <span className="inline-flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-[#e4f1ea] text-[#15803d] w-fit">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-[#16a34a] animate-pulse" />
+                                    Buka
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-[#ece9e0] text-[#6b6a68] w-fit">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-[#9ca3af]" />
+                                    Tutup
                                   </span>
                                 )}
+                                <button
+                                  type="button"
+                                  disabled={togglingBranchId === b.outletId}
+                                  onClick={async () => {
+                                    setTogglingBranchId(b.outletId);
+                                    try {
+                                      const nextOpen = !b.isStoreOpen;
+                                      const res = await toggleStoreOpenByOwner({
+                                        outletId: b.outletId,
+                                        targetOpen: nextOpen,
+                                        owner: user,
+                                      });
+                                      if (res.success) {
+                                        onBranchUpdated?.({
+                                          ...b,
+                                          isStoreOpen: nextOpen,
+                                          activeCashierName: res.statusDetail,
+                                          storeHoursLabel: res.statusDetail,
+                                        });
+                                      } else {
+                                        alert(res.error || 'Gagal mengubah status toko.');
+                                      }
+                                    } finally {
+                                      setTogglingBranchId('');
+                                    }
+                                  }}
+                                  title={
+                                    b.isStoreOpen
+                                      ? 'Klik untuk Tutup Toko cabang ini langsung'
+                                      : 'Klik untuk Buka Toko cabang ini langsung (tanpa input modal)'
+                                  }
+                                  className={`h-6 px-2 rounded-md text-[10px] font-semibold inline-flex items-center gap-1 border transition ${
+                                    b.isStoreOpen
+                                      ? 'border-[#f5c2bc] bg-[#fdf7f6] hover:bg-[#fbe4e1] text-[#9b1c12]'
+                                      : 'border-[#c5dfd1] bg-[#f4f9f6] hover:bg-[#e4f1ea] text-[#1F7A5A]'
+                                  }`}
+                                >
+                                  <Power size={10} />
+                                  {togglingBranchId === b.outletId
+                                    ? '...'
+                                    : b.isStoreOpen
+                                    ? 'Tutup'
+                                    : 'Buka'}
+                                </button>
                               </div>
-                            ) : (
-                              <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-[#ece9e0] text-[#6b6a68] w-fit">
-                                <span className="w-1.5 h-1.5 rounded-full bg-[#9ca3af]" />
-                                Tutup
-                              </span>
-                            )}
+                              {(b.activeCashierName || b.shiftOpenedAt) && (
+                                <span className="text-[10px] text-[#6b6a68]">
+                                  {b.activeCashierName}
+                                  {b.shiftOpenedAt ? ` · ${fmtTimeOnly(b.shiftOpenedAt)}` : ''}
+                                </span>
+                              )}
+                            </div>
                           </td>
 
                           <td className="py-3.5 px-3 whitespace-nowrap">

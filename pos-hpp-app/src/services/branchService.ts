@@ -1,9 +1,112 @@
 import { v4 as uuidv4 } from 'uuid';
 import { db } from '../db/database';
-import { generateKasirAuthPin, generateOutletCode } from '../db/actions';
+import { addAuditLog, generateKasirAuthPin, generateOutletCode } from '../db/actions';
+import { DEFAULT_WORK_SHIFTS } from './attendanceService';
 import { getSupabaseClient, pullAllFromSupabase } from './syncService';
 import { sendNewBranchEmail } from './authEmailService';
-import type { AppSettings, BranchInfo, User } from '../types/models';
+import type { AppSettings, BranchInfo, CashierShift, User, WorkShiftSchedule } from '../types/models';
+
+export interface StoreHoursConfig {
+  autoStoreHoursEnabled: boolean;
+  storeOpenTime: string;
+  storeCloseTime: string;
+  storeManualOverride: 'auto' | 'force_open' | 'force_closed';
+}
+
+export function unpackStoreHoursFromWorkShifts(rawWorkShifts: unknown): StoreHoursConfig {
+  const arr = Array.isArray(rawWorkShifts) ? rawWorkShifts : [];
+  const first = (arr[0] as Record<string, any> | undefined)?.storeHoursConfig as
+    | Partial<StoreHoursConfig>
+    | undefined;
+  return {
+    autoStoreHoursEnabled: Boolean(first?.autoStoreHoursEnabled),
+    storeOpenTime: String(first?.storeOpenTime || '08:00'),
+    storeCloseTime: String(first?.storeCloseTime || '22:00'),
+    storeManualOverride:
+      first?.storeManualOverride === 'force_open' || first?.storeManualOverride === 'force_closed'
+        ? first.storeManualOverride
+        : 'auto',
+  };
+}
+
+export function packWorkShiftsWithStoreHours(
+  workShifts: WorkShiftSchedule[] | undefined,
+  cfg: Partial<StoreHoursConfig>
+): WorkShiftSchedule[] {
+  const base =
+    Array.isArray(workShifts) && workShifts.length > 0
+      ? workShifts.map((s) => ({ ...s }))
+      : DEFAULT_WORK_SHIFTS.map((s) => ({ ...s }));
+  const prev = unpackStoreHoursFromWorkShifts(base);
+  const merged: StoreHoursConfig = {
+    autoStoreHoursEnabled: cfg.autoStoreHoursEnabled ?? prev.autoStoreHoursEnabled,
+    storeOpenTime: cfg.storeOpenTime || prev.storeOpenTime || '08:00',
+    storeCloseTime: cfg.storeCloseTime || prev.storeCloseTime || '22:00',
+    storeManualOverride: cfg.storeManualOverride || prev.storeManualOverride || 'auto',
+  };
+  (base[0] as unknown as Record<string, unknown>).storeHoursConfig = merged;
+  return base;
+}
+
+export function isWithinStoreScheduleWindow(openTime = '08:00', closeTime = '22:00', now = new Date()): boolean {
+  const [oh, om] = openTime.split(':').map((n) => parseInt(n, 10) || 0);
+  const [ch, cm] = closeTime.split(':').map((n) => parseInt(n, 10) || 0);
+  const openMin = oh * 60 + om;
+  const closeMin = ch * 60 + cm;
+  const curMin = now.getHours() * 60 + now.getMinutes();
+
+  if (openMin === closeMin) return true;
+  if (openMin < closeMin) {
+    return curMin >= openMin && curMin < closeMin;
+  }
+  // Melewati tengah malam (mis. 14:00 s.d. 02:00)
+  return curMin >= openMin || curMin < closeMin;
+}
+
+export function evaluateStoreOpenStatus(params: {
+  hasOpenShift: boolean;
+  activeCashierName?: string;
+  shiftOpenedAt?: string;
+  hoursConfig?: Partial<StoreHoursConfig>;
+}): { isStoreOpen: boolean; statusDetail: string } {
+  const cfg = params.hoursConfig;
+  const openTime = cfg?.storeOpenTime || '08:00';
+  const closeTime = cfg?.storeCloseTime || '22:00';
+
+  if (params.hasOpenShift) {
+    return {
+      isStoreOpen: true,
+      statusDetail: params.activeCashierName || 'Kasir Aktif',
+    };
+  }
+  if (cfg?.storeManualOverride === 'force_closed') {
+    return {
+      isStoreOpen: false,
+      statusDetail: cfg.autoStoreHoursEnabled
+        ? `Ditutup Manual (Jadwal ${openTime}–${closeTime})`
+        : 'Ditutup oleh Owner',
+    };
+  }
+  if (cfg?.storeManualOverride === 'force_open') {
+    return {
+      isStoreOpen: true,
+      statusDetail: 'Dibuka oleh Owner',
+    };
+  }
+  if (cfg?.autoStoreHoursEnabled) {
+    const inside = isWithinStoreScheduleWindow(openTime, closeTime);
+    return {
+      isStoreOpen: inside,
+      statusDetail: inside
+        ? `Buka Otomatis (${openTime}–${closeTime})`
+        : `Tutup Otomatis (Buka ${openTime}–${closeTime})`,
+    };
+  }
+  return {
+    isStoreOpen: false,
+    statusDetail: 'Tutup',
+  };
+}
 
 export interface BranchPerformanceRow {
   outletId: string;
@@ -32,6 +135,17 @@ export async function fetchOwnerBranches(owner: User): Promise<BranchInfo[]> {
     const localSettings = await db.settings.get('global');
     if (!localSettings?.outletId) return [];
     const openShift = await db.cashierShifts.where('status').equals('open').first();
+    const evalStatus = evaluateStoreOpenStatus({
+      hasOpenShift: Boolean(openShift),
+      activeCashierName: openShift?.kasirNama,
+      shiftOpenedAt: openShift?.waktuBuka,
+      hoursConfig: {
+        autoStoreHoursEnabled: localSettings.autoStoreHoursEnabled,
+        storeOpenTime: localSettings.storeOpenTime,
+        storeCloseTime: localSettings.storeCloseTime,
+        storeManualOverride: localSettings.storeManualOverride,
+      },
+    });
     return [
       {
         outletId: localSettings.outletId,
@@ -43,9 +157,10 @@ export async function fetchOwnerBranches(owner: User): Promise<BranchInfo[]> {
         parentOutletId: localSettings.parentOutletId,
         logoUsaha: localSettings.logoUsaha,
         kasirAuthPin: localSettings.kasirAuthPin,
-        isStoreOpen: Boolean(openShift),
-        activeCashierName: openShift?.kasirNama,
+        isStoreOpen: evalStatus.isStoreOpen,
+        activeCashierName: openShift?.kasirNama || evalStatus.statusDetail,
         shiftOpenedAt: openShift?.waktuBuka,
+        storeHoursLabel: evalStatus.statusDetail,
         updatedAt: localSettings.lastBackupAt,
       },
     ];
@@ -79,11 +194,13 @@ export async function fetchOwnerBranches(owner: User): Promise<BranchInfo[]> {
   // 2. Cari juga di tabel outlets berdasarkan owner_email
   const { data: outletRows } = await client.from('outlets').select('*');
   const branches: BranchInfo[] = [];
+  const hoursMap = new Map<string, StoreHoursConfig>();
 
   for (const row of (outletRows as Array<Record<string, any>> | null) || []) {
     const oid = String(row.outlet_id || '').trim().toUpperCase();
     const rowOwnerEmail = String(row.owner_email || '').trim().toLowerCase();
     if (matchedOutletIds.has(oid) || (ownerEmail && rowOwnerEmail === ownerEmail)) {
+      hoursMap.set(oid, unpackStoreHoursFromWorkShifts(row.work_shifts));
       branches.push({
         outletId: oid,
         namaUsaha: row.nama_usaha || 'Lembayung',
@@ -99,7 +216,7 @@ export async function fetchOwnerBranches(owner: User): Promise<BranchInfo[]> {
     }
   }
 
-  // 3. Cek status buka/tutup toko (apakah ada shift kasir yang sedang status='open') di seluruh cabang
+  // 3. Cek status buka/tutup toko (shift kasir aktif ATAU jadwal otomatis / override Owner) di seluruh cabang
   if (branches.length > 0) {
     const branchIds = branches.map((b) => b.outletId);
     const { data: openShifts } = await client
@@ -122,9 +239,17 @@ export async function fetchOwnerBranches(owner: User): Promise<BranchInfo[]> {
     }
     for (const b of branches) {
       const openInfo = openShiftMap.get(b.outletId);
-      b.isStoreOpen = Boolean(openInfo);
-      b.activeCashierName = openInfo?.kasirNama;
+      const hCfg = hoursMap.get(b.outletId);
+      const evalStatus = evaluateStoreOpenStatus({
+        hasOpenShift: Boolean(openInfo),
+        activeCashierName: openInfo?.kasirNama,
+        shiftOpenedAt: openInfo?.waktuBuka,
+        hoursConfig: hCfg,
+      });
+      b.isStoreOpen = evalStatus.isStoreOpen;
+      b.activeCashierName = openInfo?.kasirNama || evalStatus.statusDetail;
       b.shiftOpenedAt = openInfo?.waktuBuka;
+      b.storeHoursLabel = evalStatus.statusDetail;
     }
   }
 
@@ -220,6 +345,151 @@ export async function resetBranchKasirAuthPin(
     return {
       success: false,
       error: err instanceof Error ? err.message : 'Gagal mereset PIN Otorisasi cabang.',
+    };
+  }
+}
+
+/**
+ * Buka atau Tutup Toko langsung 1-klik oleh Owner TANPA perlu memasukkan modal uang laci.
+ */
+export async function toggleStoreOpenByOwner(params: {
+  outletId?: string;
+  targetOpen: boolean;
+  owner: User;
+}): Promise<{ success: boolean; isStoreOpen: boolean; statusDetail: string; error?: string }> {
+  const localSettings = await db.settings.get('global');
+  const activeOid = (localSettings?.outletId || '').trim().toUpperCase();
+  const targetOid = (params.outletId || activeOid).trim().toUpperCase();
+  const isCurrentOutlet = targetOid === activeOid;
+  const nowIso = new Date().toISOString();
+  const nextOverride: 'force_open' | 'force_closed' = params.targetOpen
+    ? 'force_open'
+    : 'force_closed';
+
+  try {
+    // 1. Jika cabang yang di-toggle adalah cabang aktif di perangkat ini, perbarui lokal Dexie langsung (support offline!)
+    if (isCurrentOutlet && localSettings) {
+      const packedShifts = packWorkShiftsWithStoreHours(localSettings.workShifts, {
+        autoStoreHoursEnabled: localSettings.autoStoreHoursEnabled,
+        storeOpenTime: localSettings.storeOpenTime,
+        storeCloseTime: localSettings.storeCloseTime,
+        storeManualOverride: nextOverride,
+      });
+      await db.settings.update('global', {
+        storeManualOverride: nextOverride,
+        workShifts: packedShifts,
+        lastBackupAt: nowIso,
+      });
+
+      const localOpenShifts = await db.cashierShifts.where('status').equals('open').toArray();
+      if (params.targetOpen && localOpenShifts.length === 0) {
+        const ownerShift: CashierShift = {
+          id: uuidv4(),
+          kasirId: params.owner.id,
+          kasirNama: `${params.owner.nama} (Owner)`,
+          waktuBuka: nowIso,
+          status: 'open',
+          modalAwal: 0,
+          pendapatanCash: 0,
+          pendapatanQris: 0,
+          pendapatanTransfer: 0,
+          pengeluaranKasir: 0,
+          expectedCash: 0,
+          catatan: 'Dibuka langsung oleh Owner (tanpa modal laci)',
+        };
+        await db.cashierShifts.add(ownerShift);
+      } else if (!params.targetOpen && localOpenShifts.length > 0) {
+        for (const sh of localOpenShifts) {
+          await db.cashierShifts.update(sh.id, {
+            status: 'closed',
+            waktuTutup: nowIso,
+            uangFisikAkhir: sh.expectedCash,
+            selisih: 0,
+            catatan: 'Ditutup langsung oleh Owner',
+          });
+        }
+      }
+
+      await addAuditLog(
+        params.owner,
+        params.targetOpen ? 'BUKA_TOKO_OWNER' : 'TUTUP_TOKO_OWNER',
+        localSettings.namaCabang || targetOid,
+        params.targetOpen
+          ? 'Toko dibuka langsung oleh Owner (tanpa input modal)'
+          : 'Toko ditutup langsung oleh Owner'
+      );
+    }
+
+    // 2. Sinkronkan ke Supabase Cloud jika online (berlaku untuk cabang aktif maupun cabang lain di tabel Daftar Cabang)
+    if (typeof navigator !== 'undefined' && navigator.onLine) {
+      const client = getSupabaseClient(localSettings);
+      const { data: row } = await client
+        .from('outlets')
+        .select('work_shifts')
+        .eq('outlet_id', targetOid)
+        .maybeSingle();
+
+      const existingShifts = Array.isArray((row as { work_shifts?: unknown } | null)?.work_shifts)
+        ? ((row as { work_shifts: WorkShiftSchedule[] }).work_shifts)
+        : localSettings?.workShifts;
+      const packed = packWorkShiftsWithStoreHours(existingShifts, {
+        storeManualOverride: nextOverride,
+      });
+
+      await client
+        .from('outlets')
+        .update({ work_shifts: packed, updated_at: nowIso })
+        .eq('outlet_id', targetOid);
+
+      if (params.targetOpen) {
+        const { data: openCloudShifts } = await client
+          .from('cashier_shifts')
+          .select('id')
+          .eq('outlet_id', targetOid)
+          .eq('status', 'open');
+        if (!openCloudShifts || openCloudShifts.length === 0) {
+          await client.from('cashier_shifts').insert({
+            outlet_id: targetOid,
+            id: uuidv4(),
+            kasir_id: params.owner.id,
+            kasir_nama: `${params.owner.nama} (Owner)`,
+            waktu_buka: nowIso,
+            status: 'open',
+            modal_awal: 0,
+            pendapatan_cash: 0,
+            pendapatan_qris: 0,
+            pendapatan_transfer: 0,
+            pengeluaran_kasir: 0,
+            expected_cash: 0,
+            catatan: 'Dibuka langsung oleh Owner',
+            updated_at: nowIso,
+          });
+        }
+      } else {
+        await client
+          .from('cashier_shifts')
+          .update({
+            status: 'closed',
+            waktu_tutup: nowIso,
+            catatan: 'Ditutup langsung oleh Owner',
+            updated_at: nowIso,
+          })
+          .eq('outlet_id', targetOid)
+          .eq('status', 'open');
+      }
+    }
+
+    return {
+      success: true,
+      isStoreOpen: params.targetOpen,
+      statusDetail: params.targetOpen ? `${params.owner.nama} (Owner)` : 'Ditutup oleh Owner',
+    };
+  } catch (err) {
+    return {
+      success: false,
+      isStoreOpen: !params.targetOpen,
+      statusDetail: '',
+      error: err instanceof Error ? err.message : 'Gagal mengubah status buka/tutup toko.',
     };
   }
 }
