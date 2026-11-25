@@ -372,7 +372,7 @@ export async function upsertGroupParticipantItems(params: {
         (it.participantName || '').trim().toLowerCase() === cleanName.toLowerCase()
     );
     const ownerDeviceId = existingSameNameItems.find((it) => it.participantDeviceId)?.participantDeviceId;
-    if (ownerDeviceId && ownerDeviceId !== callerDeviceId) {
+    if (existingSameNameItems.length > 0 && ownerDeviceId !== callerDeviceId) {
       return {
         success: false,
         error: `Nama "${cleanName}" sudah digunakan oleh teman dari HP lain. Pesanan milik "${cleanName}" hanya bisa diubah dari HP miliknya sendiri. Silakan gunakan nama panggilan lain (mis. "${cleanName} 2").`,
@@ -526,6 +526,7 @@ export async function submitSelfOrderToCashier(params: {
         catatan: effectiveNote,
         participantName: pName || fullMeta.customerName,
         participantWa: (it.participantWa || '').trim() || (pName === fullMeta.customerName ? fullMeta.customerWa : undefined),
+        participantDeviceId: (it as SelfOrderCartItem).participantDeviceId,
         ...(idx === 0 ? { selfOrderMeta: fullMeta } : {}),
       };
     });

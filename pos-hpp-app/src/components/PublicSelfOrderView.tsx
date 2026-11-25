@@ -398,6 +398,7 @@ export const PublicSelfOrderView: React.FC = () => {
         catatan?: string;
         participantName?: string;
         participantWa?: string;
+        participantDeviceId?: string;
       }> = [];
 
       if (groupOrderId && sharedOrder) {
@@ -411,9 +412,9 @@ export const PublicSelfOrderView: React.FC = () => {
           const existingSameName = existingGroupItems.filter(
             (i) => (i.participantName || '').trim().toLowerCase() === currentPerson.toLowerCase()
           );
-          const ownedByOtherDevice = existingSameName.some(
-            (i) => i.participantDeviceId && i.participantDeviceId !== myDeviceId
-          );
+          const ownedByOtherDevice =
+            existingSameName.length > 0 &&
+            existingSameName.some((i) => i.participantDeviceId !== myDeviceId);
           if (ownedByOtherDevice) {
             alert(
               `Nama "${currentPerson}" sudah digunakan oleh teman dari HP lain. Pesanan milik "${currentPerson}" tidak dapat diubah dari HP ini.`
@@ -432,6 +433,7 @@ export const PublicSelfOrderView: React.FC = () => {
             catatan: c.catatan,
             participantName: currentPerson,
             participantWa: currentWa,
+            participantDeviceId: myDeviceId,
           }));
           itemsToSend = [...others, ...unsavedCurrent];
         } else {
@@ -508,7 +510,7 @@ export const PublicSelfOrderView: React.FC = () => {
         name: pName,
         wa: it.participantWa,
         deviceId: it.participantDeviceId,
-        isMine: !it.participantDeviceId || it.participantDeviceId === myDeviceId,
+        isMine: Boolean(it.participantDeviceId && it.participantDeviceId === myDeviceId),
         total: 0,
         qty: 0,
         items: [],
