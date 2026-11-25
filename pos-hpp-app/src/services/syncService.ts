@@ -236,6 +236,19 @@ export function getWebBackofficeUrl(): string {
     : 'https://lembayung-testing.pages.dev';
 }
 
+export function resolveFallbackOutletId(
+  settings?: Pick<AppSettings, 'outletId' | 'namaUsaha'> | null
+): string {
+  const existing = (settings?.outletId || '').trim().toUpperCase();
+  if (existing) return existing;
+  const prefix = (settings?.namaUsaha || 'TOKO')
+    .replace(/[^a-zA-Z0-9]/g, '')
+    .toUpperCase()
+    .slice(0, 4)
+    .padEnd(4, 'X');
+  return `${prefix}-8899`;
+}
+
 export function getSupabaseConfig(settings?: AppSettings): {
   url: string;
   anonKey: string;
@@ -257,7 +270,7 @@ export function getSupabaseConfig(settings?: AppSettings): {
   const anonKey = (
     (!isPlaceholderKey ? envKey : settings?.supabaseAnonKey || FALLBACK_SUPABASE_ANON_KEY)
   ).trim();
-  const outletId = (settings?.outletId || 'CUAN-8899').trim().toUpperCase();
+  const outletId = resolveFallbackOutletId(settings);
 
   return { url, anonKey, outletId, env };
 }

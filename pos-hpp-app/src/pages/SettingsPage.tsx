@@ -571,7 +571,12 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   };
 
   const handleCopyOutletCode = async () => {
-    const code = settings.outletId || 'CUAN-8899';
+    const fallbackPrefix = (settings.namaUsaha || 'TOKO')
+      .replace(/[^a-zA-Z0-9]/g, '')
+      .toUpperCase()
+      .slice(0, 4)
+      .padEnd(4, 'X');
+    const code = settings.outletId || `${fallbackPrefix}-8899`;
     try {
       await navigator.clipboard?.writeText(code);
       setCopiedOutletCode(true);
@@ -1339,7 +1344,8 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
               Kode Toko Anda (Bagikan ke HP Kasir)
             </div>
             <div className="text-base font-bold tracking-wider text-[#1F7A5A] truncate">
-              {settings.outletId || 'CUAN-8899'}
+              {settings.outletId ||
+                `${(settings.namaUsaha || 'TOKO').replace(/[^a-zA-Z0-9]/g, '').toUpperCase().slice(0, 4).padEnd(4, 'X')}-8899`}
             </div>
           </div>
           <button

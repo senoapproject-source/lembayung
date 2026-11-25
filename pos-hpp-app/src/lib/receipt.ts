@@ -584,7 +584,12 @@ export async function uploadReceiptJsonToSupabase(
     const jsonString = JSON.stringify(payload);
     const jsonBlob = new Blob([jsonString], { type: 'application/json' });
     const client = getSupabaseClient(settings);
-    const outletId = (settings?.outletId || 'CUAN-8899').trim().toUpperCase();
+    const outletId = (
+      settings?.outletId ||
+      `${(settings?.namaUsaha || 'TOKO').replace(/[^a-zA-Z0-9]/g, '').toUpperCase().slice(0, 4).padEnd(4, 'X')}-8899`
+    )
+      .trim()
+      .toUpperCase();
     const safeStruk = tx.nomorStruk.replace(/[^a-zA-Z0-9]/g, '');
     const filePath = `${outletId}/struk-${safeStruk}-${tx.id.slice(0, 6)}.json`;
 
@@ -640,7 +645,12 @@ export async function uploadReceiptImageToSupabase(
   try {
     const blob = await generateReceiptPngBlob(tx, settings);
     const client = getSupabaseClient(settings);
-    const outletId = (settings?.outletId || 'CUAN-8899').trim().toUpperCase();
+    const outletId = (
+      settings?.outletId ||
+      `${(settings?.namaUsaha || 'TOKO').replace(/[^a-zA-Z0-9]/g, '').toUpperCase().slice(0, 4).padEnd(4, 'X')}-8899`
+    )
+      .trim()
+      .toUpperCase();
     const safeStruk = tx.nomorStruk.replace(/[^a-zA-Z0-9]/g, '');
     const filePath = `${outletId}/struk-${safeStruk}-${tx.id.slice(0, 6)}.png`;
 

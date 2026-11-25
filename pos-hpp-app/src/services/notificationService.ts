@@ -169,7 +169,12 @@ export async function startRealtimeTransactionNotifications(): Promise<void> {
   if (typeof navigator !== 'undefined' && !navigator.onLine) return;
 
   const settings = await db.settings.get('global');
-  const outletId = (settings?.outletId || 'CUAN-8899').trim().toUpperCase();
+  const outletId = (
+    settings?.outletId ||
+    `${(settings?.namaUsaha || 'TOKO').replace(/[^a-zA-Z0-9]/g, '').toUpperCase().slice(0, 4).padEnd(4, 'X')}-8899`
+  )
+    .trim()
+    .toUpperCase();
   const client = getSupabaseClient(settings);
 
   activeRealtimeChannel = client
