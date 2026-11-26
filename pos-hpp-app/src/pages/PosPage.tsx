@@ -592,6 +592,14 @@ export const PosPage: React.FC<PosPageProps> = ({ user, onOpenHistory }) => {
                 }`}
               >
                 <div className="min-w-0">
+                  {menu.foto && (
+                    <img
+                      src={menu.foto}
+                      alt={menu.nama}
+                      loading="lazy"
+                      className="w-full h-24 sm:h-28 object-cover rounded-lg mb-2 border border-[#eeece5]"
+                    />
+                  )}
                   <div className="text-[11px] text-[#6b6a68] truncate">{menu.kategori}</div>
                   <div className="font-semibold text-sm leading-snug mt-0.5 line-clamp-2 break-words">
                     {menu.nama}

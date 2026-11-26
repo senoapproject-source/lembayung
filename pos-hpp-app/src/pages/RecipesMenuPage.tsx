@@ -14,8 +14,9 @@ import {
   stripNonDigits,
 } from '../lib/calculations';
 import { CustomSelect } from '../components/CustomSelect';
+import { uploadCompressedMediaToStorage } from '../services/mediaStorageService';
 import type { MenuItem, Recipe, RecipeItem, RecipeOtherCost, User } from '../types/models';
-import { Plus, Trash2, X } from 'lucide-react';
+import { Camera, Plus, Trash2, X } from 'lucide-react';
 
 interface RecipesMenuPageProps {
   user: User;
@@ -39,6 +40,9 @@ export const RecipesMenuPage: React.FC<RecipesMenuPageProps> = ({ user }) => {
   const [mKategori, setMKategori] = useState('Makanan');
   const [mHargaJual, setMHargaJual] = useState('');
   const [mTargetMargin, setMTargetMargin] = useState('');
+  const [mFoto, setMFoto] = useState<string | undefined>(undefined);
+  const [uploadingMenuFoto, setUploadingMenuFoto] = useState(false);
+  const [menuFotoInfo, setMenuFotoInfo] = useState('');
   const [savingMenu, setSavingMenu] = useState(false);
 
   // Modal Resep
@@ -109,6 +113,8 @@ export const RecipesMenuPage: React.FC<RecipesMenuPageProps> = ({ user }) => {
     setMKategori('Makanan');
     setMTargetMargin(String(defaultMargin));
     setMHargaJual('');
+    setMFoto(undefined);
+    setMenuFotoInfo('');
     setShowMenuModal(true);
   };
 
@@ -120,7 +126,33 @@ export const RecipesMenuPage: React.FC<RecipesMenuPageProps> = ({ user }) => {
     setMKategori(m.kategori);
     setMHargaJual(String(m.hargaJual));
     setMTargetMargin(String(m.targetMarginPersen ?? defaultMargin));
+    setMFoto(m.foto);
+    setMenuFotoInfo('');
     setShowMenuModal(true);
+  };
+
+  const handleMenuPhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadingMenuFoto(true);
+    setMenuFotoInfo('');
+    try {
+      const res = await uploadCompressedMediaToStorage({
+        file,
+        folder: 'menus',
+      });
+      setMFoto(res.url);
+      setMenuFotoInfo(
+        res.uploadedToStorage
+          ? `Terkompresi ${res.sizeKb} KB · Cloud Storage`
+          : `Terkompresi ${res.sizeKb} KB · lokal (offline)`
+      );
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Gagal memproses foto menu.');
+    } finally {
+      setUploadingMenuFoto(false);
+      e.target.value = '';
+    }
   };
 
   const handleSaveMenu = async (e: React.FormEvent) => {
@@ -141,6 +173,7 @@ export const RecipesMenuPage: React.FC<RecipesMenuPageProps> = ({ user }) => {
           hppManual: mRecipeId ? undefined : parsedManualHpp,
           nama: mNama.trim(),
           kategori: mKategori.trim() || 'Makanan',
+          foto: mFoto || undefined,
           hargaJual: hargaNum,
           targetMarginPersen: Number(mTargetMargin) || defaultMargin,
           active: editingMenu?.active ?? true,
@@ -338,17 +371,26 @@ export const RecipesMenuPage: React.FC<RecipesMenuPageProps> = ({ user }) => {
                   className="w-full text-left bg-white border border-[#e2e0d8] rounded-xl px-4 py-3.5 hover:border-[#1F7A5A]/50 transition flex flex-col justify-between"
                 >
                   <div className="flex justify-between items-start gap-3">
-                    <div>
-                      <div className="font-semibold text-sm flex items-center gap-1.5 flex-wrap">
-                        <span>{menu.nama}</span>
-                        {!hasRecipe && (
-                          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-[#ece9e0] text-[#4a4947]">
-                            {hasHpp ? 'HPP Manual' : 'Tanpa Resep'}
-                          </span>
-                        )}
-                      </div>
-                      <div className="text-xs text-[#6b6a68]">
-                        {menu.kategori} · {hasHpp ? `HPP ${formatRupiah(hpp)}` : 'HPP belum diisi'}
+                    <div className="flex items-start gap-2.5 min-w-0">
+                      {menu.foto && (
+                        <img
+                          src={menu.foto}
+                          alt={menu.nama}
+                          className="w-11 h-11 rounded-xl object-cover border border-[#e2e0d8] shrink-0"
+                        />
+                      )}
+                      <div className="min-w-0">
+                        <div className="font-semibold text-sm flex items-center gap-1.5 flex-wrap">
+                          <span>{menu.nama}</span>
+                          {!hasRecipe && (
+                            <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-[#ece9e0] text-[#4a4947]">
+                              {hasHpp ? 'HPP Manual' : 'Tanpa Resep'}
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-xs text-[#6b6a68]">
+                          {menu.kategori} · {hasHpp ? `HPP ${formatRupiah(hpp)}` : 'HPP belum diisi'}
+                        </div>
                       </div>
                     </div>
                     <div className="text-right shrink-0">
@@ -450,6 +492,55 @@ export const RecipesMenuPage: React.FC<RecipesMenuPageProps> = ({ user }) => {
             </div>
 
             <form onSubmit={handleSaveMenu} className="flex flex-col gap-3">
+              {/* Upload Foto Menu Produk (Auto-Kompresi -> Cloud Storage) */}
+              <div className="bg-[#faf9f5] border border-[#e2e0d8] rounded-xl p-3 flex items-center gap-3">
+                {mFoto ? (
+                  <img
+                    src={mFoto}
+                    alt="Foto menu"
+                    className="w-14 h-14 rounded-xl object-cover border border-[#d6d3c8] shrink-0"
+                  />
+                ) : (
+                  <div className="w-14 h-14 rounded-xl bg-white border border-dashed border-[#d6d3c8] flex items-center justify-center text-[#6b6a68] shrink-0">
+                    <Camera size={20} />
+                  </div>
+                )}
+                <div className="flex-1 min-w-0">
+                  <div className="text-xs font-semibold text-[#1f1e1d]">
+                    Foto Menu Produk (Opsional)
+                  </div>
+                  <div className="text-[11px] text-[#6b6a68]">
+                    {uploadingMenuFoto
+                      ? 'Mengompresi & mengunggah foto...'
+                      : menuFotoInfo || 'Otomatis dikompresi ringan & tampil di Kasir dan Self-Order.'}
+                  </div>
+                  <div className="mt-1.5 flex items-center gap-2">
+                    <label className="h-7 px-2.5 rounded-lg bg-[#e4f1ea] hover:bg-[#d3e8dc] text-[#1F7A5A] text-[11px] font-semibold inline-flex items-center gap-1 cursor-pointer">
+                      <Camera size={12} /> {uploadingMenuFoto ? 'Memproses...' : mFoto ? 'Ganti Foto' : 'Upload Foto'}
+                      <input
+                        type="file"
+                        accept="image/*"
+                        disabled={uploadingMenuFoto}
+                        onChange={handleMenuPhotoUpload}
+                        className="hidden"
+                      />
+                    </label>
+                    {mFoto && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setMFoto(undefined);
+                          setMenuFotoInfo('');
+                        }}
+                        className="h-7 px-2 rounded-lg border border-[#f5c2bc] bg-[#fdf7f6] text-[#9b1c12] text-[11px] font-semibold inline-flex items-center gap-1"
+                      >
+                        <Trash2 size={11} /> Hapus
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+
               <div>
                 <label className="block text-xs font-medium text-[#4a4947] mb-1">
                   Tautkan ke Resep (Opsional)

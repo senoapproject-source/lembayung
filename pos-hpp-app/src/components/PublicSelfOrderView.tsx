@@ -1324,12 +1324,22 @@ export const PublicSelfOrderView: React.FC = () => {
                   qty > 0 ? 'border-[#1F7A5A] ring-1 ring-[#1F7A5A]' : 'border-[#e2e0d8]'
                 }`}
               >
-                <div className="flex justify-between items-start gap-2">
-                  <div>
-                    <div className="text-[10px] font-medium text-[#6b6a68]">{menu.kategori}</div>
-                    <div className="font-bold text-sm text-[#1f1e1d] mt-0.5">{menu.nama}</div>
-                    <div className="font-bold text-sm text-[#1F7A5A] mt-1">
-                      {formatRupiah(menu.hargaJual)}
+                <div className="flex justify-between items-start gap-2.5">
+                  <div className="flex items-start gap-2.5 min-w-0">
+                    {menu.foto && (
+                      <img
+                        src={menu.foto}
+                        alt={menu.nama}
+                        loading="lazy"
+                        className="w-16 h-16 rounded-xl object-cover border border-[#eeece5] shrink-0"
+                      />
+                    )}
+                    <div className="min-w-0">
+                      <div className="text-[10px] font-medium text-[#6b6a68]">{menu.kategori}</div>
+                      <div className="font-bold text-sm text-[#1f1e1d] mt-0.5">{menu.nama}</div>
+                      <div className="font-bold text-sm text-[#1F7A5A] mt-1">
+                        {formatRupiah(menu.hargaJual)}
+                      </div>
                     </div>
                   </div>
                   {qty === 0 ? (

@@ -4,6 +4,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { db } from '../db/database';
 import { addAuditLog, enqueueSync } from '../db/actions';
 import { sendDeviceNotification } from '../services/notificationService';
+import { uploadCompressedMediaToStorage } from '../services/mediaStorageService';
 import { formatRibuanInput, formatRupiah, formatTanggalPendek, stripNonDigits } from '../lib/calculations';
 import { CustomSelect } from '../components/CustomSelect';
 import type { CashierShift, Expense, User } from '../types/models';
@@ -33,6 +34,8 @@ export const ExpensesPage: React.FC<ExpensesPageProps> = ({ user, activeShift, o
   const [keterangan, setKeterangan] = useState('');
   const [biayaTetap, setBiayaTetap] = useState(false);
   const [lampiranFoto, setLampiranFoto] = useState<string | undefined>(undefined);
+  const [uploadingNota, setUploadingNota] = useState(false);
+  const [notaInfoText, setNotaInfoText] = useState('');
 
   const catMap = useMemo(() => new Map(categories.map((c) => [c.id, c])), [categories]);
   const isOwnerOnlyCat = (nama: string) => /^(gaji|sewa)$/i.test(nama.trim());
@@ -85,12 +88,28 @@ export const ExpensesPage: React.FC<ExpensesPageProps> = ({ user, activeShift, o
   const selectedCategoryObj = catMap.get(categoryId);
   const canMarkFixed = isOwner && (selectedCategoryObj ? !selectedCategoryObj.sudahMasukHpp : true);
 
-  const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => setLampiranFoto(String(reader.result));
-    reader.readAsDataURL(file);
+    setUploadingNota(true);
+    setNotaInfoText('');
+    try {
+      const res = await uploadCompressedMediaToStorage({
+        file,
+        folder: 'nota',
+      });
+      setLampiranFoto(res.url);
+      setNotaInfoText(
+        res.uploadedToStorage
+          ? `Terkompresi ${res.sizeKb} KB · tersimpan di Cloud Storage`
+          : `Terkompresi ${res.sizeKb} KB · tersimpan lokal (offline)`
+      );
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Gagal memproses foto nota.');
+    } finally {
+      setUploadingNota(false);
+      e.target.value = '';
+    }
   };
 
   const handleSaveExpense = async (e: React.FormEvent) => {
@@ -345,11 +364,21 @@ export const ExpensesPage: React.FC<ExpensesPageProps> = ({ user, activeShift, o
               <div className="flex flex-col gap-2">
                 <div className="flex justify-between items-center">
                   <span className="text-xs text-[#6b6a68]">
-                    {lampiranFoto ? 'Foto nota terlampir ✓' : 'Lampiran foto nota (opsional)'}
+                    {uploadingNota
+                      ? 'Mengompresi & mengunggah nota...'
+                      : lampiranFoto
+                      ? 'Foto nota terlampir ✓'
+                      : 'Lampiran foto nota (opsional)'}
                   </span>
                   <label className="text-[13px] font-semibold text-[#1F7A5A] cursor-pointer flex items-center gap-1">
-                    <Camera size={14} /> {lampiranFoto ? 'Ganti foto' : '+ Foto nota'}
-                    <input type="file" accept="image/*" onChange={handlePhotoUpload} className="hidden" />
+                    <Camera size={14} /> {uploadingNota ? 'Memproses...' : lampiranFoto ? 'Ganti foto' : '+ Foto nota'}
+                    <input
+                      type="file"
+                      accept="image/*"
+                      disabled={uploadingNota}
+                      onChange={handlePhotoUpload}
+                      className="hidden"
+                    />
                   </label>
                 </div>
                 {lampiranFoto && (
@@ -360,11 +389,14 @@ export const ExpensesPage: React.FC<ExpensesPageProps> = ({ user, activeShift, o
                       className="w-16 h-16 rounded-lg object-cover border border-[#d6d3c8] shrink-0"
                     />
                     <div className="flex-1 min-w-0 text-[11px] text-[#4a4947]">
-                      Foto nota siap disimpan bersama pengeluaran ini.
+                      {notaInfoText || 'Foto nota terkompresi siap disimpan.'}
                     </div>
                     <button
                       type="button"
-                      onClick={() => setLampiranFoto(undefined)}
+                      onClick={() => {
+                        setLampiranFoto(undefined);
+                        setNotaInfoText('');
+                      }}
                       title="Hapus foto nota"
                       className="p-1.5 rounded-lg text-[#9b1c12] hover:bg-[#fbe4e1] shrink-0"
                     >
@@ -376,9 +408,10 @@ export const ExpensesPage: React.FC<ExpensesPageProps> = ({ user, activeShift, o
 
               <button
                 type="submit"
-                className="h-12 rounded-[10px] bg-[#1F7A5A] text-white font-semibold text-[15px] mt-1"
+                disabled={uploadingNota}
+                className="h-12 rounded-[10px] bg-[#1F7A5A] text-white font-semibold text-[15px] mt-1 disabled:opacity-50"
               >
-                Simpan pengeluaran
+                {uploadingNota ? 'Menunggu upload foto...' : 'Simpan pengeluaran'}
               </button>
             </form>
           </div>
