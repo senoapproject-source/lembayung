@@ -170,7 +170,7 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
         </div>
 
         {/* Kertas Struk Preview */}
-        <div className="bg-[#faf9f5] border border-[#e2e0d8] rounded-xl p-3.5 text-xs flex flex-col gap-1.5">
+        <div className="bg-[#faf9f5] border border-[#e2e0d8] rounded-xl p-3.5 text-xs flex flex-col gap-1.5 shrink-0">
           {settings?.logoUsaha && (
             <div className="flex justify-center pb-1">
               <img
@@ -243,7 +243,7 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
         </div>
 
         {/* Pengiriman lewat WhatsApp Biasa */}
-        <div className="bg-[#e4f1ea] border border-[#c5dfd1] rounded-xl p-3 flex flex-col gap-2">
+        <div className="bg-[#e4f1ea] border border-[#c5dfd1] rounded-xl p-3 flex flex-col gap-2 shrink-0">
           <label className="text-xs font-semibold text-[#1f4d3a]">
             {splitParticipants.length > 1
               ? 'Kirim Struk Gabungan Semua Pemesan via WhatsApp'
@@ -273,7 +273,7 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
 
         {/* Kirim Struk Terpisah per Pemesan (Split Bill WhatsApp) */}
         {splitParticipants.length > 1 && (
-          <div className="bg-[#eef2ff] border border-[#c7d2fe] rounded-xl p-3 flex flex-col gap-2.5 overflow-hidden">
+          <div className="bg-[#eef2ff] border border-[#c7d2fe] rounded-xl p-3 flex flex-col gap-2.5 shrink-0">
             <div>
               <div className="text-xs font-bold text-[#3730a3]">
                 👥 Kirim Struk Terpisah per Pemesan (Split Bill)
@@ -324,7 +324,7 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
         )}
 
         {/* Link Struk Digital (Website — Tanpa Beban Storage) */}
-        <div className="flex flex-col gap-1.5">
+        <div className="flex flex-col gap-1.5 shrink-0">
           <div className="flex justify-between items-center">
             <span className="text-xs font-medium text-[#4a4947]">
               Link Struk Digital Website
@@ -357,7 +357,7 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
           </div>
         </div>
 
-        <div className="grid grid-cols-3 gap-2 pt-1">
+        <div className="grid grid-cols-3 gap-2 pt-1 shrink-0">
           <button
             type="button"
             onClick={handleSaveReceipt}

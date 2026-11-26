@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { formatRupiah } from '../lib/calculations';
 import { CuaninLogo } from './CuaninLogo';
 import {
@@ -91,6 +91,7 @@ export const PublicSelfOrderView: React.FC = () => {
     () => sessionStorage.getItem('lembayung_so_wa') || ''
   );
   const myDeviceId = useMemo(() => getOrCreateSelfOrderDeviceId(), []);
+  const hydratedSharedMetaRef = useRef(false);
 
   const isHost = useMemo(() => {
     if (!groupOrderId) return true;
@@ -136,6 +137,17 @@ export const PublicSelfOrderView: React.FC = () => {
       }
       setSharedOrder(ord);
       const meta = extractSelfOrderMeta(ord);
+      if (meta && !hydratedSharedMetaRef.current) {
+        hydratedSharedMetaRef.current = true;
+        setMode(meta.mode);
+        if (meta.tableNumber) setTableNumber((prev) => prev || meta.tableNumber || '');
+        if (meta.pickupTime) setPickupTime((prev) => prev || meta.pickupTime || '');
+        if (meta.deliveryAddress) setDeliveryAddress((prev) => prev || meta.deliveryAddress || '');
+        if (meta.deliveryLandmark) setDeliveryLandmark((prev) => prev || meta.deliveryLandmark || '');
+        if (meta.mapsUrl) setMapsUrl((prev) => prev || meta.mapsUrl || '');
+        if (meta.customerWa) setCustomerWa((prev) => prev || meta.customerWa || '');
+        if (meta.hostName) setCustomerName((prev) => prev || meta.hostName || '');
+      }
       if (meta && meta.stage !== 'draft_group' && !trackedOrderId) {
         // Host sudah mengirim pesanan grup ke kasir -> otomatis pindah ke layar Live Tracker!
         setTrackedOrderId(ord.id);
@@ -369,14 +381,14 @@ export const PublicSelfOrderView: React.FC = () => {
   // Kirim Pesanan (Mandiri atau Finalisasi Group Order) ke Kasir Toko
   const handleSubmitOrderToStore = async () => {
     const sharedMeta = sharedOrder ? extractSelfOrderMeta(sharedOrder) : null;
-    const effectiveHostName = (sharedMeta?.hostName || customerName || participantName).trim();
-    const effectiveMode = sharedMeta?.mode || mode;
-    const effectiveWa = (sharedMeta?.customerWa || customerWa).trim();
-    const effectiveTable = (sharedMeta?.tableNumber || tableNumber).trim();
-    const effectivePickup = (sharedMeta?.pickupTime || pickupTime).trim();
-    const effectiveAddress = (sharedMeta?.deliveryAddress || deliveryAddress).trim();
-    const effectiveLandmark = (sharedMeta?.deliveryLandmark || deliveryLandmark).trim();
-    const effectiveMaps = (sharedMeta?.mapsUrl || mapsUrl).trim();
+    const effectiveHostName = (customerName || sharedMeta?.hostName || participantName).trim();
+    const effectiveMode = mode || sharedMeta?.mode || 'delivery';
+    const effectiveWa = (customerWa || sharedMeta?.customerWa || participantWa).trim();
+    const effectiveTable = (tableNumber || sharedMeta?.tableNumber || '').trim();
+    const effectivePickup = (pickupTime || sharedMeta?.pickupTime || '').trim();
+    const effectiveAddress = (deliveryAddress || sharedMeta?.deliveryAddress || '').trim();
+    const effectiveLandmark = (deliveryLandmark || sharedMeta?.deliveryLandmark || '').trim();
+    const effectiveMaps = (mapsUrl || sharedMeta?.mapsUrl || '').trim();
 
     if (!effectiveHostName) {
       alert('Nama Pemesan wajib diisi.');
@@ -846,6 +858,27 @@ export const PublicSelfOrderView: React.FC = () => {
               </button>
             </div>
 
+            {/* Ringkasan Info Pengantaran / Mode untuk Teman Non-Host */}
+            {!isHost && (() => {
+              const sm = sharedOrder ? extractSelfOrderMeta(sharedOrder) : null;
+              if (!sm) return null;
+              return (
+                <div className="bg-white/80 rounded-xl px-3 py-2 border border-[#c7d2fe] text-[11px] text-[#3730a3] flex flex-col gap-0.5">
+                  <div className="font-semibold">
+                    {formatModeLabel(sm.mode)} · Host: {sm.hostName || sm.customerName}
+                    {sm.tableNumber ? ` · Meja ${sm.tableNumber}` : ''}
+                    {sm.pickupTime ? ` · Ambil ${sm.pickupTime}` : ''}
+                  </div>
+                  {sm.deliveryAddress && (
+                    <div className="text-[#4a4947]">📍 {sm.deliveryAddress}</div>
+                  )}
+                  {sm.deliveryLandmark && (
+                    <div className="text-[#1F7A5A]">Patokan: {sm.deliveryLandmark}</div>
+                  )}
+                </div>
+              );
+            })()}
+
             {/* Ringkasan Keranjang Bersama & Split Bill Real-Time (+ Edit/Hapus jika numpang 1 HP) */}
             {splitBillSummary.length > 0 && (
               <div className="bg-white rounded-xl p-3 border border-[#c7d2fe] flex flex-col gap-2 text-xs">
@@ -965,6 +998,147 @@ export const PublicSelfOrderView: React.FC = () => {
                 />
               </div>
             </div>
+
+            {mode === 'dine_in' && (
+              <div>
+                <label className="block text-[11px] font-semibold text-[#4a4947] mb-1">
+                  Nomor Meja *
+                </label>
+                <input
+                  type="text"
+                  value={tableNumber}
+                  onChange={(e) => setTableNumber(e.target.value)}
+                  placeholder="Contoh: Meja 3"
+                  className="w-full h-9 border border-[#d6d3c8] rounded-xl px-3 text-xs"
+                />
+              </div>
+            )}
+
+            {mode === 'pickup' && (
+              <div>
+                <label className="block text-[11px] font-semibold text-[#4a4947] mb-1">
+                  Rencana Jam Ambil
+                </label>
+                <input
+                  type="time"
+                  value={pickupTime}
+                  onChange={(e) => setPickupTime(e.target.value)}
+                  className="w-full h-9 border border-[#d6d3c8] rounded-xl px-3 text-xs"
+                />
+              </div>
+            )}
+
+            {mode === 'delivery' && (
+              <div className="flex flex-col gap-2.5">
+                <div>
+                  <div className="flex items-center justify-between gap-2 mb-1">
+                    <label className="block text-[11px] font-semibold text-[#4a4947]">
+                      Alamat Pengantaran Lengkap *
+                    </label>
+                    <button
+                      type="button"
+                      onClick={handleGetGpsLocation}
+                      disabled={locatingGps}
+                      className="h-7 px-2.5 rounded-lg bg-[#e4f1ea] text-[#1F7A5A] text-[11px] font-semibold inline-flex items-center gap-1"
+                    >
+                      <Navigation size={11} />
+                      {locatingGps
+                        ? 'Mencari Alamat GPS...'
+                        : mapsUrl
+                        ? '✓ Isi Ulang dari GPS'
+                        : 'Isi Otomatis dari GPS'}
+                    </button>
+                  </div>
+                  <textarea
+                    rows={2}
+                    value={deliveryAddress}
+                    onChange={(e) => setDeliveryAddress(e.target.value)}
+                    placeholder="Klik 'Isi Otomatis dari GPS' di kanan atas atau ketik alamat lengkap Anda"
+                    className="w-full border border-[#d6d3c8] rounded-xl p-2.5 text-xs"
+                  />
+                  {mapsUrl && (
+                    <div className="mt-1 flex items-center justify-between text-[11px]">
+                      <span className="text-[#1F7A5A] font-medium">
+                        ✓ Titik koordinat Google Maps sudah terlampir
+                      </span>
+                      <a
+                        href={mapsUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-[#1F7A5A] underline font-semibold"
+                      >
+                        Lihat Peta
+                      </a>
+                    </div>
+                  )}
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-semibold text-[#4a4947] mb-1">
+                    Patokan Lokasi / Detail Rumah (Opsional)
+                  </label>
+                  <input
+                    type="text"
+                    value={deliveryLandmark}
+                    onChange={(e) => setDeliveryLandmark(e.target.value)}
+                    placeholder="Contoh: Pagar hitam samping masjid / Rumah cat krem"
+                    className="w-full h-9 border border-[#d6d3c8] rounded-xl px-3 text-xs"
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Form Detail Pengantaran / Mode untuk Host saat Mode Pesan Bareng aktif */}
+        {groupOrderId && isHost && (
+          <div className="bg-white border border-[#e2e0d8] rounded-2xl p-4 flex flex-col gap-3">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs font-bold text-[#1f1e1d]">
+                Detail Cara Pesan &amp; Pengantaran (Host)
+              </span>
+              <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-[#e4f1ea] text-[#1F7A5A]">
+                {formatModeLabel(mode)}
+              </span>
+            </div>
+
+            <div className="grid grid-cols-3 gap-2">
+              {(
+                [
+                  { key: 'dine_in', label: '🍽️ Makan Sini' },
+                  { key: 'pickup', label: '🛍️ Ambil Sendiri' },
+                  { key: 'delivery', label: '🛵 Pesan Antar' },
+                ] as const
+              ).map((m) => (
+                <button
+                  key={m.key}
+                  type="button"
+                  onClick={() => setMode(m.key)}
+                  className={`h-9 rounded-xl border text-xs font-semibold transition ${
+                    mode === m.key
+                      ? 'bg-[#1F7A5A] border-[#1F7A5A] text-white'
+                      : 'bg-[#faf9f5] border-[#d6d3c8] text-[#4a4947]'
+                  }`}
+                >
+                  {m.label}
+                </button>
+              ))}
+            </div>
+
+            {(mode === 'delivery' || mode === 'pickup') && (
+              <div>
+                <label className="block text-[11px] font-semibold text-[#4a4947] mb-1">
+                  No. WhatsApp Host (untuk konfirmasi toko) *
+                </label>
+                <input
+                  type="tel"
+                  value={customerWa}
+                  onChange={(e) => setCustomerWa(e.target.value)}
+                  placeholder="0812xxxx"
+                  className="w-full h-9 border border-[#d6d3c8] rounded-xl px-3 text-xs"
+                />
+              </div>
+            )}
 
             {mode === 'dine_in' && (
               <div>
