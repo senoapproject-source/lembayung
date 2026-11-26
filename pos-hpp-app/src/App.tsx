@@ -33,7 +33,13 @@ import { PublicSelfOrderView } from './components/PublicSelfOrderView';
 import { WebLoginPage } from './web/WebLoginPage';
 import { WebDashboardShell } from './web/WebDashboardShell';
 import { WebBranchesTeamPage } from './web/WebBranchesTeamPage';
-import { fetchOwnerBranches, switchActiveBranch } from './services/branchService';
+import {
+  evaluateStoreOpenStatus,
+  fetchOwnerBranches,
+  switchActiveBranch,
+  toggleStoreOpenByOwner,
+} from './services/branchService';
+import { SelfOrderShareModal } from './components/SelfOrderShareModal';
 import { CuaninLogo } from './components/CuaninLogo';
 import { LembayungSplash } from './components/LembayungSplash';
 import { AttendanceKioskModal } from './components/AttendanceKioskModal';
@@ -60,6 +66,8 @@ import {
   LogOut,
   Moon,
   Package,
+  Power,
+  QrCode,
   Receipt,
   Settings,
   ShoppingCart,
@@ -114,6 +122,8 @@ export function App() {
   const [showAttendanceKiosk, setShowAttendanceKiosk] = useState<boolean>(false);
   const [ownerBranches, setOwnerBranches] = useState<BranchInfo[]>([]);
   const [switchingBranch, setSwitchingBranch] = useState<boolean>(false);
+  const [showSelfOrderShare, setShowSelfOrderShare] = useState<boolean>(false);
+  const [togglingOwnerStore, setTogglingOwnerStore] = useState<boolean>(false);
   const [kasirModeActive, setKasirModeActive] = useState<boolean>(
     () => localStorage.getItem(KASIR_MODE_KEY) === '1'
   );
@@ -653,6 +663,13 @@ export function App() {
         <AttendanceKioskModal onClose={() => setShowAttendanceKiosk(false)} />
       )}
 
+      {showSelfOrderShare && (
+        <SelfOrderShareModal
+          settings={settings}
+          onClose={() => setShowSelfOrderShare(false)}
+        />
+      )}
+
       {updateInfo?.hasUpdate && !updateDismissed && (
           <UpdatePromptModal
             info={updateInfo}
@@ -743,6 +760,34 @@ export function App() {
     </span>
   );
 
+  const openCashierShiftForStatus = useLiveQuery(() =>
+    db.cashierShifts.where('status').equals('open').first()
+  );
+  const storeOpenState = evaluateStoreOpenStatus({
+    hasOpenShift: Boolean(openCashierShiftForStatus),
+    activeCashierName: openCashierShiftForStatus?.kasirNama,
+    shiftOpenedAt: openCashierShiftForStatus?.waktuBuka,
+    hoursConfig: {
+      autoStoreHoursEnabled: settings?.autoStoreHoursEnabled,
+      storeOpenTime: settings?.storeOpenTime,
+      storeCloseTime: settings?.storeCloseTime,
+      storeManualOverride: settings?.storeManualOverride,
+    },
+  });
+
+  const handleToggleStoreByOwner = async () => {
+    if (!currentUser || currentUser.role !== 'owner' || togglingOwnerStore) return;
+    setTogglingOwnerStore(true);
+    try {
+      await toggleStoreOpenByOwner({
+        targetOpen: !storeOpenState.isStoreOpen,
+        owner: currentUser,
+      });
+    } finally {
+      setTogglingOwnerStore(false);
+    }
+  };
+
   return (
     <div className="h-[100dvh] w-full max-w-full bg-[#faf9f5] safe-frame flex flex-col md:flex-row overflow-hidden">
       {splashOverlay}
@@ -764,7 +809,7 @@ export function App() {
                 )}
               </div>
               <div className="text-[11px] font-medium text-[#1F7A5A]">
-                Lembayung · POS &amp; HPP
+                POS &amp; HPP
               </div>
             </div>
           </div>
@@ -789,6 +834,50 @@ export function App() {
               </select>
             </div>
           )}
+
+          {/* Status Toko & Akses Cepat QR Self-Order di Sidebar */}
+          <div className="grid grid-cols-2 gap-1.5">
+            {isOwner ? (
+              <button
+                type="button"
+                disabled={togglingOwnerStore}
+                onClick={handleToggleStoreByOwner}
+                title="Klik untuk Buka / Tutup Toko langsung tanpa input modal uang"
+                className={`h-8 px-2 rounded-xl border text-[11px] font-semibold flex items-center justify-center gap-1 transition whitespace-nowrap ${
+                  storeOpenState.isStoreOpen
+                    ? 'border-[#c5dfd1] bg-[#e4f1ea] text-[#15803d] hover:bg-[#d5eadf]'
+                    : 'border-[#f5c2bc] bg-[#fbe4e1] text-[#9b1c12] hover:bg-[#f7d0cb]'
+                }`}
+              >
+                <Power size={12} />
+                <span>{storeOpenState.isStoreOpen ? 'Toko Buka' : 'Toko Tutup'}</span>
+              </button>
+            ) : (
+              <div
+                className={`h-8 px-2 rounded-xl border text-[11px] font-semibold flex items-center justify-center gap-1 whitespace-nowrap ${
+                  storeOpenState.isStoreOpen
+                    ? 'border-[#c5dfd1] bg-[#e4f1ea] text-[#15803d]'
+                    : 'border-[#e2e0d8] bg-[#faf9f5] text-[#6b6a68]'
+                }`}
+              >
+                <span
+                  className={`w-1.5 h-1.5 rounded-full ${
+                    storeOpenState.isStoreOpen ? 'bg-[#16a34a]' : 'bg-[#9ca3af]'
+                  }`}
+                />
+                <span>{storeOpenState.isStoreOpen ? 'Toko Buka' : 'Toko Tutup'}</span>
+              </div>
+            )}
+            <button
+              type="button"
+              onClick={() => setShowSelfOrderShare(true)}
+              title="Bagikan QR & Link Self-Order / Delivery / Pesan Bareng"
+              className="h-8 px-2 rounded-xl border border-[#c5dfd1] bg-[#f4f9f6] hover:bg-[#e4f1ea] text-[#1F7A5A] text-[11px] font-semibold flex items-center justify-center gap-1 transition whitespace-nowrap"
+            >
+              <QrCode size={12} />
+              <span>QR Order</span>
+            </button>
+          </div>
 
           {/* Menu Utama Sidebar */}
           <nav className="flex flex-col gap-1">
@@ -937,7 +1026,9 @@ export function App() {
         <div className="flex items-center gap-1.5 min-w-0">
           <div className="flex items-center gap-1 pr-1.5 border-r border-[#e2e0d8] min-w-0">
             <CuaninLogo size={20} />
-            <span className="font-bold text-xs text-[#1f1e1d] truncate">Lembayung</span>
+            <span className="font-bold text-xs text-[#1f1e1d] truncate">
+              {settings?.namaUsaha || 'POS'}
+            </span>
             <span className="text-[10px] font-medium text-[#6b6a68] shrink-0">
               v{getInstalledAppVersion()}
             </span>
@@ -973,6 +1064,30 @@ export function App() {
               <Clock size={12} /> Absen
             </button>
           )}
+          {isOwner && (
+            <button
+              type="button"
+              disabled={togglingOwnerStore}
+              onClick={handleToggleStoreByOwner}
+              title={storeOpenState.isStoreOpen ? 'Toko Buka (Klik untuk tutup)' : 'Toko Tutup (Klik untuk buka)'}
+              className={`px-2 py-1 rounded-full font-semibold text-[10px] flex items-center gap-1 shrink-0 whitespace-nowrap border ${
+                storeOpenState.isStoreOpen
+                  ? 'border-[#c5dfd1] bg-[#e4f1ea] text-[#15803d]'
+                  : 'border-[#f5c2bc] bg-[#fbe4e1] text-[#9b1c12]'
+              }`}
+            >
+              <Power size={11} />
+              <span>{storeOpenState.isStoreOpen ? 'Buka' : 'Tutup'}</span>
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => setShowSelfOrderShare(true)}
+            title="QR & Link Self-Order"
+            className="p-1.5 rounded-md text-[#1F7A5A] hover:bg-[#e4f1ea] transition"
+          >
+            <QrCode size={15} />
+          </button>
           <button
             type="button"
             onClick={toggleDarkMode}
@@ -1245,6 +1360,13 @@ export function App() {
 
       {showAttendanceKiosk && (
         <AttendanceKioskModal onClose={() => setShowAttendanceKiosk(false)} />
+      )}
+
+      {showSelfOrderShare && (
+        <SelfOrderShareModal
+          settings={settings}
+          onClose={() => setShowSelfOrderShare(false)}
+        />
       )}
 
       {updateInfo?.hasUpdate && !updateDismissed && (
