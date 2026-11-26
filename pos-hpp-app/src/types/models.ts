@@ -292,6 +292,7 @@ export interface BranchInfo {
   logoUsaha?: string;
   kasirAuthPin?: string;
   isStoreOpen?: boolean;
+  isActive?: boolean; // false jika cabang dinonaktifkan oleh Owner (syarat sebelum hapus)
   activeCashierName?: string;
   shiftOpenedAt?: string;
   storeHoursLabel?: string;

@@ -667,6 +667,17 @@ export const WebDashboardShell: React.FC<WebDashboardShellProps> = ({
                         prev.map((b) => (b.outletId === updated.outletId ? { ...b, ...updated } : b))
                       );
                     }}
+                    onBranchDeleted={async (deletedOid) => {
+                      const remaining = branches.filter((b) => b.outletId !== deletedOid);
+                      setBranches(remaining);
+                      setToastMsg(`Cabang (${deletedOid}) berhasil dihapus permanen.`);
+                      if (activeOutletId === deletedOid && remaining.length > 0) {
+                        const pusat =
+                          remaining.find((b) => !b.parentOutletId || b.parentOutletId === b.outletId) ||
+                          remaining[0];
+                        await handleBranchSwitch(pusat.outletId);
+                      }
+                    }}
                     onOpenBranchSettings={async (oid) => {
                       await handleBranchSwitch(oid, 'branches');
                       setBranchSubTab('settings');

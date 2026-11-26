@@ -1,6 +1,6 @@
 import { v4 as uuidv4 } from 'uuid';
-import { db } from '../db/database';
-import { addAuditLog, generateKasirAuthPin, generateOutletCode } from '../db/actions';
+import { db, hashPassword } from '../db/database';
+import { addAuditLog, generateBranchOutletCode, generateKasirAuthPin } from '../db/actions';
 import { DEFAULT_WORK_SHIFTS } from './attendanceService';
 import { getSupabaseClient, pullAllFromSupabase } from './syncService';
 import { sendNewBranchEmail } from './authEmailService';
@@ -11,6 +11,7 @@ export interface StoreHoursConfig {
   storeOpenTime: string;
   storeCloseTime: string;
   storeManualOverride: 'auto' | 'force_open' | 'force_closed';
+  branchActive?: boolean; // false = Cabang dinonaktifkan oleh Owner
 }
 
 export function unpackStoreHoursFromWorkShifts(rawWorkShifts: unknown): StoreHoursConfig {
@@ -26,6 +27,7 @@ export function unpackStoreHoursFromWorkShifts(rawWorkShifts: unknown): StoreHou
       first?.storeManualOverride === 'force_open' || first?.storeManualOverride === 'force_closed'
         ? first.storeManualOverride
         : 'auto',
+    branchActive: first?.branchActive === false ? false : true,
   };
 }
 
@@ -43,6 +45,7 @@ export function packWorkShiftsWithStoreHours(
     storeOpenTime: cfg.storeOpenTime || prev.storeOpenTime || '08:00',
     storeCloseTime: cfg.storeCloseTime || prev.storeCloseTime || '22:00',
     storeManualOverride: cfg.storeManualOverride || prev.storeManualOverride || 'auto',
+    branchActive: cfg.branchActive !== undefined ? cfg.branchActive : prev.branchActive !== false,
   };
   (base[0] as unknown as Record<string, unknown>).storeHoursConfig = merged;
   return base;
@@ -72,6 +75,13 @@ export function evaluateStoreOpenStatus(params: {
   const cfg = params.hoursConfig;
   const openTime = cfg?.storeOpenTime || '08:00';
   const closeTime = cfg?.storeCloseTime || '22:00';
+
+  if (cfg?.branchActive === false) {
+    return {
+      isStoreOpen: false,
+      statusDetail: 'Cabang Non-Aktif',
+    };
+  }
 
   if (params.hasOpenShift) {
     return {
@@ -247,6 +257,7 @@ export async function fetchOwnerBranches(owner: User): Promise<BranchInfo[]> {
         hoursConfig: hCfg,
       });
       b.isStoreOpen = evalStatus.isStoreOpen;
+      b.isActive = hCfg?.branchActive !== false;
       b.activeCashierName = openInfo?.kasirNama || evalStatus.statusDetail;
       b.shiftOpenedAt = openInfo?.waktuBuka;
       b.storeHoursLabel = evalStatus.statusDetail;
@@ -495,6 +506,186 @@ export async function toggleStoreOpenByOwner(params: {
 }
 
 /**
+ * Non-aktifkan atau aktifkan kembali sebuah Cabang (hanya cabang di bawah Pusat, tidak berlaku untuk Pusat).
+ * Saat dinonaktifkan, operasional toko & shift terbuka di cabang tersebut langsung ditutup.
+ */
+export async function setBranchActiveStatus(params: {
+  outletId: string;
+  active: boolean;
+  owner: User;
+}): Promise<{ success: boolean; error?: string }> {
+  if (params.owner.role !== 'owner') {
+    return { success: false, error: 'Hanya Owner yang dapat mengubah status aktif cabang.' };
+  }
+  if (typeof navigator !== 'undefined' && !navigator.onLine) {
+    return { success: false, error: 'Mengubah status cabang memerlukan koneksi internet.' };
+  }
+  try {
+    const cleanOid = params.outletId.trim().toUpperCase();
+    const localSettings = await db.settings.get('global');
+    const client = getSupabaseClient(localSettings);
+    const nowIso = new Date().toISOString();
+
+    const { data: row, error: fetchErr } = await client
+      .from('outlets')
+      .select('outlet_id, nama_cabang, parent_outlet_id, work_shifts')
+      .eq('outlet_id', cleanOid)
+      .maybeSingle();
+
+    if (fetchErr || !row) {
+      return { success: false, error: fetchErr?.message || 'Data cabang tidak ditemukan di Cloud.' };
+    }
+
+    const r = row as Record<string, any>;
+    const isPusat = !r.parent_outlet_id || String(r.parent_outlet_id).trim().toUpperCase() === cleanOid;
+    if (isPusat && !params.active) {
+      return { success: false, error: 'Outlet Pusat tidak dapat dinonaktifkan.' };
+    }
+
+    const packedShifts = packWorkShiftsWithStoreHours(
+      Array.isArray(r.work_shifts) ? (r.work_shifts as WorkShiftSchedule[]) : undefined,
+      {
+        branchActive: params.active,
+        storeManualOverride: params.active ? 'auto' : 'force_closed',
+      }
+    );
+
+    const { error: updErr } = await client
+      .from('outlets')
+      .update({ work_shifts: packedShifts, updated_at: nowIso })
+      .eq('outlet_id', cleanOid);
+    if (updErr) return { success: false, error: updErr.message };
+
+    if (!params.active) {
+      // Tutup shift terbuka di cabang yang dinonaktifkan
+      await client
+        .from('cashier_shifts')
+        .update({
+          status: 'closed',
+          waktu_tutup: nowIso,
+          catatan_tutup: `Cabang dinonaktifkan oleh Owner (${params.owner.nama})`,
+        })
+        .eq('outlet_id', cleanOid)
+        .eq('status', 'open');
+    }
+
+    await addAuditLog(
+      params.owner,
+      params.active ? 'AKTIFKAN_CABANG' : 'NONAKTIFKAN_CABANG',
+      `${r.nama_cabang || cleanOid} (${cleanOid})`,
+      params.active ? 'Cabang diaktifkan kembali oleh Owner' : 'Cabang dinonaktifkan oleh Owner'
+    );
+
+    return { success: true };
+  } catch (err) {
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : 'Gagal mengubah status aktif cabang.',
+    };
+  }
+}
+
+/**
+ * Hapus Cabang secara permanen dari Cloud.
+ * Syarat wajib:
+ * 1. Hanya Owner.
+ * 2. Bukan outlet Pusat.
+ * 3. Status cabang sudah Non-Aktif.
+ * 4. Kata sandi akun Owner terverifikasi benar.
+ */
+export async function deleteBranchPermanently(params: {
+  outletId: string;
+  owner: User;
+  ownerPassword: string;
+}): Promise<{ success: boolean; error?: string }> {
+  if (params.owner.role !== 'owner') {
+    return { success: false, error: 'Hanya Owner yang dapat menghapus cabang.' };
+  }
+  if (!params.ownerPassword.trim()) {
+    return { success: false, error: 'Masukkan kata sandi akun Owner terlebih dahulu.' };
+  }
+  if (typeof navigator !== 'undefined' && !navigator.onLine) {
+    return { success: false, error: 'Menghapus cabang memerlukan koneksi internet.' };
+  }
+
+  // 1. Verifikasi kata sandi Owner
+  const inputHash = await hashPassword(params.ownerPassword);
+  if (inputHash !== params.owner.passwordHash) {
+    return { success: false, error: 'Kata sandi Owner salah. Penghapusan cabang dibatalkan.' };
+  }
+
+  try {
+    const cleanOid = params.outletId.trim().toUpperCase();
+    const localSettings = await db.settings.get('global');
+    const client = getSupabaseClient(localSettings);
+
+    const { data: row, error: fetchErr } = await client
+      .from('outlets')
+      .select('outlet_id, nama_cabang, parent_outlet_id, work_shifts')
+      .eq('outlet_id', cleanOid)
+      .maybeSingle();
+
+    if (fetchErr || !row) {
+      return { success: false, error: fetchErr?.message || 'Data cabang tidak ditemukan.' };
+    }
+
+    const r = row as Record<string, any>;
+    const isPusat = !r.parent_outlet_id || String(r.parent_outlet_id).trim().toUpperCase() === cleanOid;
+    if (isPusat) {
+      return { success: false, error: 'Outlet Pusat tidak dapat dihapus.' };
+    }
+
+    const hCfg = unpackStoreHoursFromWorkShifts(r.work_shifts);
+    if (hCfg.branchActive !== false) {
+      return {
+        success: false,
+        error: 'Cabang harus berstatus Non-Aktif terlebih dahulu sebelum dapat dihapus.',
+      };
+    }
+
+    // 2. Hapus seluruh data anak cabang di Cloud secara berurutan, lalu hapus baris outlets
+    const childTables = [
+      'transactions',
+      'saved_orders',
+      'expenses',
+      'menu_hpp_history',
+      'menus',
+      'recipes',
+      'purchases',
+      'ingredients',
+      'expense_categories',
+      'monthly_targets',
+      'cashier_shifts',
+      'attendances',
+      'device_push_tokens',
+      'users',
+    ];
+    for (const tbl of childTables) {
+      await client.from(tbl).delete().eq('outlet_id', cleanOid);
+    }
+
+    const { error: delOutletErr } = await client.from('outlets').delete().eq('outlet_id', cleanOid);
+    if (delOutletErr) {
+      return { success: false, error: `Gagal menghapus cabang: ${delOutletErr.message}` };
+    }
+
+    await addAuditLog(
+      params.owner,
+      'HAPUS_CABANG',
+      `${r.nama_cabang || cleanOid} (${cleanOid})`,
+      'Cabang non-aktif dihapus permanen oleh Owner setelah verifikasi kata sandi'
+    );
+
+    return { success: true };
+  } catch (err) {
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : 'Gagal menghapus cabang.',
+    };
+  }
+}
+
+/**
  * Buat Cabang Baru di Cloud (khusus Owner) dengan opsi salin Bahan, Resep HPP, & Menu dari cabang lain.
  */
 export async function createNewBranch(params: {
@@ -519,7 +710,17 @@ export async function createNewBranch(params: {
   try {
     const client = getSupabaseClient(params.currentSettings);
     const nowIso = new Date().toISOString();
-    const newOutletId = generateOutletCode(`${params.namaUsaha} ${params.namaCabang}`);
+    const existingBranches = await fetchOwnerBranches(params.owner).catch(() => [] as BranchInfo[]);
+    const pusatBranch = existingBranches.find((b) => !b.parentOutletId || b.parentOutletId === b.outletId);
+    const parentOutletId =
+      pusatBranch?.outletId ||
+      params.currentSettings.parentOutletId ||
+      params.currentSettings.outletId ||
+      '';
+    const newOutletId = generateBranchOutletCode(
+      parentOutletId,
+      existingBranches.map((b) => b.outletId)
+    );
     const newKasirAuthPin = generateKasirAuthPin(
       params.owner.pin ? [params.owner.pin.trim()] : []
     );
@@ -530,8 +731,7 @@ export async function createNewBranch(params: {
     )
       .trim()
       .toLowerCase();
-    const parentOutletId =
-      params.currentSettings.parentOutletId || params.currentSettings.outletId || newOutletId;
+    const effectiveParentOutletId = parentOutletId || newOutletId;
 
     // 1. Insert baris outlet cabang baru
     const { error: outletErr } = await client.from('outlets').upsert(
@@ -540,7 +740,7 @@ export async function createNewBranch(params: {
         nama_usaha: params.namaUsaha.trim(),
         nama_cabang: params.namaCabang.trim() || 'Cabang Baru',
         owner_email: ownerEmail || null,
-        parent_outlet_id: parentOutletId,
+        parent_outlet_id: effectiveParentOutletId,
         logo_usaha: params.currentSettings.logoUsaha || null,
         alamat_usaha: params.alamatUsaha.trim() || '-',
         telepon_usaha: (params.teleponUsaha || params.currentSettings.teleponUsaha || '').trim(),

@@ -5,7 +5,9 @@ import { db, hashPassword } from '../db/database';
 import { addAuditLog, enqueueSync } from '../db/actions';
 import {
   createNewBranch,
+  deleteBranchPermanently,
   resetBranchKasirAuthPin,
+  setBranchActiveStatus,
   toggleStoreOpenByOwner,
   updateBranchProfile,
 } from '../services/branchService';
@@ -46,6 +48,7 @@ interface WebBranchesTeamPageProps {
   section?: 'branches' | 'team' | 'all';
   onBranchCreated: (branch: BranchInfo) => void;
   onBranchUpdated?: (branch: BranchInfo) => void;
+  onBranchDeleted?: (outletId: string) => void;
   onOpenBranchSettings?: (outletId: string) => void;
   onSelectBranch: (outletId: string) => void;
 }
@@ -58,6 +61,7 @@ export const WebBranchesTeamPage: React.FC<WebBranchesTeamPageProps> = ({
   section = 'all',
   onBranchCreated,
   onBranchUpdated,
+  onBranchDeleted,
   onOpenBranchSettings,
 }) => {
   const users = useLiveQuery(() => db.users.toArray()) ?? [];
@@ -75,6 +79,12 @@ export const WebBranchesTeamPage: React.FC<WebBranchesTeamPageProps> = ({
   const [ebErr, setEbErr] = useState('');
   const [resettingPinOutletId, setResettingPinOutletId] = useState('');
   const [togglingBranchId, setTogglingBranchId] = useState('');
+  const [togglingActiveBranchId, setTogglingActiveBranchId] = useState('');
+  // Modal Hapus Cabang (wajib status Non-Aktif + input kata sandi Owner)
+  const [deletingBranch, setDeletingBranch] = useState<BranchInfo | null>(null);
+  const [delBranchPassword, setDelBranchPassword] = useState('');
+  const [delBranchErr, setDelBranchErr] = useState('');
+  const [delBranchLoading, setDelBranchLoading] = useState(false);
   const [showAddBranch, setShowAddBranch] = useState(false);
   const [bNamaCabang, setBNamaCabang] = useState('');
   const [bAlamat, setBAlamat] = useState('');
@@ -657,8 +667,13 @@ export const WebBranchesTeamPage: React.FC<WebBranchesTeamPageProps> = ({
 
                           <td className="py-3.5 px-3 whitespace-nowrap">
                             <div className="flex flex-col gap-1">
-                              <div className="flex items-center gap-1.5">
-                                {b.isStoreOpen ? (
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                {b.isActive === false ? (
+                                  <span className="inline-flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-[#fbe4e1] text-[#9b1c12] w-fit">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-[#dc2626]" />
+                                    Non-Aktif
+                                  </span>
+                                ) : b.isStoreOpen ? (
                                   <span className="inline-flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-[#e4f1ea] text-[#15803d] w-fit">
                                     <span className="w-1.5 h-1.5 rounded-full bg-[#16a34a] animate-pulse" />
                                     Buka
@@ -669,50 +684,52 @@ export const WebBranchesTeamPage: React.FC<WebBranchesTeamPageProps> = ({
                                     Tutup
                                   </span>
                                 )}
-                                <button
-                                  type="button"
-                                  disabled={togglingBranchId === b.outletId}
-                                  onClick={async () => {
-                                    setTogglingBranchId(b.outletId);
-                                    try {
-                                      const nextOpen = !b.isStoreOpen;
-                                      const res = await toggleStoreOpenByOwner({
-                                        outletId: b.outletId,
-                                        targetOpen: nextOpen,
-                                        owner: user,
-                                      });
-                                      if (res.success) {
-                                        onBranchUpdated?.({
-                                          ...b,
-                                          isStoreOpen: nextOpen,
-                                          activeCashierName: res.statusDetail,
-                                          storeHoursLabel: res.statusDetail,
+                                {b.isActive !== false && (
+                                  <button
+                                    type="button"
+                                    disabled={togglingBranchId === b.outletId}
+                                    onClick={async () => {
+                                      setTogglingBranchId(b.outletId);
+                                      try {
+                                        const nextOpen = !b.isStoreOpen;
+                                        const res = await toggleStoreOpenByOwner({
+                                          outletId: b.outletId,
+                                          targetOpen: nextOpen,
+                                          owner: user,
                                         });
-                                      } else {
-                                        alert(res.error || 'Gagal mengubah status toko.');
+                                        if (res.success) {
+                                          onBranchUpdated?.({
+                                            ...b,
+                                            isStoreOpen: nextOpen,
+                                            activeCashierName: res.statusDetail,
+                                            storeHoursLabel: res.statusDetail,
+                                          });
+                                        } else {
+                                          alert(res.error || 'Gagal mengubah status toko.');
+                                        }
+                                      } finally {
+                                        setTogglingBranchId('');
                                       }
-                                    } finally {
-                                      setTogglingBranchId('');
+                                    }}
+                                    title={
+                                      b.isStoreOpen
+                                        ? 'Klik untuk Tutup Toko cabang ini langsung'
+                                        : 'Klik untuk Buka Toko cabang ini langsung (tanpa input modal)'
                                     }
-                                  }}
-                                  title={
-                                    b.isStoreOpen
-                                      ? 'Klik untuk Tutup Toko cabang ini langsung'
-                                      : 'Klik untuk Buka Toko cabang ini langsung (tanpa input modal)'
-                                  }
-                                  className={`h-6 px-2 rounded-md text-[10px] font-semibold inline-flex items-center gap-1 border transition ${
-                                    b.isStoreOpen
-                                      ? 'border-[#f5c2bc] bg-[#fdf7f6] hover:bg-[#fbe4e1] text-[#9b1c12]'
-                                      : 'border-[#c5dfd1] bg-[#f4f9f6] hover:bg-[#e4f1ea] text-[#1F7A5A]'
-                                  }`}
-                                >
-                                  <Power size={10} />
-                                  {togglingBranchId === b.outletId
-                                    ? '...'
-                                    : b.isStoreOpen
-                                    ? 'Tutup'
-                                    : 'Buka'}
-                                </button>
+                                    className={`h-6 px-2 rounded-md text-[10px] font-semibold inline-flex items-center gap-1 border transition ${
+                                      b.isStoreOpen
+                                        ? 'border-[#f5c2bc] bg-[#fdf7f6] hover:bg-[#fbe4e1] text-[#9b1c12]'
+                                        : 'border-[#c5dfd1] bg-[#f4f9f6] hover:bg-[#e4f1ea] text-[#1F7A5A]'
+                                    }`}
+                                  >
+                                    <Power size={10} />
+                                    {togglingBranchId === b.outletId
+                                      ? '...'
+                                      : b.isStoreOpen
+                                      ? 'Tutup'
+                                      : 'Buka'}
+                                  </button>
+                                )}
                               </div>
                               {(b.activeCashierName || b.shiftOpenedAt) && (
                                 <span className="text-[10px] text-[#6b6a68]">
@@ -796,6 +813,74 @@ export const WebBranchesTeamPage: React.FC<WebBranchesTeamPageProps> = ({
                                 <KeyRound size={12} />
                                 {resettingPinOutletId === b.outletId ? 'Mereset...' : 'Reset PIN'}
                               </button>
+                              {isOwner && !isPusat && (
+                                <>
+                                  <button
+                                    type="button"
+                                    disabled={togglingActiveBranchId === b.outletId}
+                                    onClick={async () => {
+                                      const nextActive = b.isActive === false;
+                                      if (
+                                        !nextActive &&
+                                        !confirm(
+                                          `Non-aktifkan cabang "${b.namaCabang}" (${b.outletId})? Operasional toko & pesanan pelanggan di cabang ini akan dihentikan.`
+                                        )
+                                      ) {
+                                        return;
+                                      }
+                                      setTogglingActiveBranchId(b.outletId);
+                                      try {
+                                        const res = await setBranchActiveStatus({
+                                          outletId: b.outletId,
+                                          active: nextActive,
+                                          owner: user,
+                                        });
+                                        if (res.success) {
+                                          onBranchUpdated?.({
+                                            ...b,
+                                            isActive: nextActive,
+                                            isStoreOpen: nextActive ? false : false,
+                                            activeCashierName: nextActive ? 'Tutup' : 'Cabang Non-Aktif',
+                                            storeHoursLabel: nextActive ? 'Tutup' : 'Cabang Non-Aktif',
+                                          });
+                                        } else {
+                                          alert(res.error || 'Gagal mengubah status aktif cabang.');
+                                        }
+                                      } finally {
+                                        setTogglingActiveBranchId('');
+                                      }
+                                    }}
+                                    className={`h-8 px-2.5 rounded-lg border text-[11px] font-semibold inline-flex items-center gap-1 transition disabled:opacity-50 ${
+                                      b.isActive === false
+                                        ? 'border-[#c5dfd1] bg-[#e4f1ea] hover:bg-[#d3e8dc] text-[#15803d]'
+                                        : 'border-[#f5d0a9] bg-[#fff7ed] hover:bg-[#ffedd5] text-[#9a3412]'
+                                    }`}
+                                  >
+                                    {togglingActiveBranchId === b.outletId
+                                      ? '...'
+                                      : b.isActive === false
+                                      ? 'Aktifkan'
+                                      : 'Non-Aktifkan'}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    disabled={b.isActive !== false}
+                                    onClick={() => {
+                                      setDeletingBranch(b);
+                                      setDelBranchPassword('');
+                                      setDelBranchErr('');
+                                    }}
+                                    title={
+                                      b.isActive === false
+                                        ? `Hapus permanen cabang ${b.namaCabang}`
+                                        : 'Non-aktifkan cabang terlebih dahulu sebelum dapat dihapus'
+                                    }
+                                    className="h-8 px-2.5 rounded-lg border border-[#f5c2bc] bg-[#fdf7f6] hover:bg-[#fbe4e1] text-[#9b1c12] text-[11px] font-semibold inline-flex items-center gap-1 transition disabled:opacity-40 disabled:cursor-not-allowed"
+                                  >
+                                    <Trash2 size={12} /> Hapus
+                                  </button>
+                                </>
+                              )}
                             </div>
                           </td>
                         </tr>
@@ -987,6 +1072,100 @@ export const WebBranchesTeamPage: React.FC<WebBranchesTeamPageProps> = ({
       )}
 
       {/* Modal Tambah Cabang Baru */}
+      {deletingBranch && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+          <form
+            onSubmit={async (e) => {
+              e.preventDefault();
+              setDelBranchErr('');
+              if (!delBranchPassword.trim()) {
+                setDelBranchErr('Kata sandi akun Owner wajib diisi.');
+                return;
+              }
+              setDelBranchLoading(true);
+              try {
+                const res = await deleteBranchPermanently({
+                  outletId: deletingBranch.outletId,
+                  owner: user,
+                  ownerPassword: delBranchPassword,
+                });
+                if (!res.success) {
+                  setDelBranchErr(res.error || 'Gagal menghapus cabang.');
+                  return;
+                }
+                const deletedId = deletingBranch.outletId;
+                setDeletingBranch(null);
+                setDelBranchPassword('');
+                onBranchDeleted?.(deletedId);
+              } finally {
+                setDelBranchLoading(false);
+              }
+            }}
+            className="bg-white w-full max-w-[420px] rounded-2xl p-5 flex flex-col gap-3.5 shadow-xl"
+          >
+            <div className="flex items-center justify-between">
+              <div className="font-bold text-base text-[#9b1c12] flex items-center gap-2">
+                <Trash2 size={18} /> Hapus Cabang Permanen
+              </div>
+              <button type="button" onClick={() => setDeletingBranch(null)}>
+                <X size={18} className="text-[#6b6a68]" />
+              </button>
+            </div>
+
+            <div className="bg-[#fdf7f6] border border-[#f5c2bc] rounded-xl p-3 text-xs text-[#7f1d1d] flex flex-col gap-1">
+              <div>
+                Anda akan menghapus permanen cabang{' '}
+                <strong>{deletingBranch.namaCabang}</strong> (
+                <span className="font-mono font-bold">{deletingBranch.outletId}</span>).
+              </div>
+              <div>
+                Seluruh data menu, resep, bahan, transaksi, dan pengeluaran khusus cabang ini akan
+                dihapus permanen dan tidak dapat dikembalikan.
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-[#4a4947] mb-1">
+                Masukkan Kata Sandi Akun Owner untuk Konfirmasi *
+              </label>
+              <input
+                type="password"
+                value={delBranchPassword}
+                onChange={(e) => setDelBranchPassword(e.target.value)}
+                placeholder="Kata sandi login Owner Anda"
+                className="w-full h-10 border border-[#d6d3c8] rounded-xl px-3 text-sm focus:outline-none focus:border-[#9b1c12]"
+                autoFocus
+                required
+              />
+            </div>
+
+            {delBranchErr && (
+              <div className="text-xs bg-[#fbe4e1] text-[#9b1c12] px-3 py-2 rounded-xl font-medium">
+                {delBranchErr}
+              </div>
+            )}
+
+            <div className="flex justify-end gap-2 pt-1">
+              <button
+                type="button"
+                disabled={delBranchLoading}
+                onClick={() => setDeletingBranch(null)}
+                className="h-10 px-4 rounded-xl border border-[#d6d3c8] text-xs font-semibold"
+              >
+                Batal
+              </button>
+              <button
+                type="submit"
+                disabled={delBranchLoading}
+                className="h-10 px-4 rounded-xl bg-[#9b1c12] hover:bg-[#7f1d1d] text-white text-xs font-semibold disabled:opacity-50"
+              >
+                {delBranchLoading ? 'Menghapus...' : 'Konfirmasi Hapus Cabang'}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
       {showAddBranch && (
         <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
           <form

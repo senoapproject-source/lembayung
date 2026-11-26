@@ -713,14 +713,49 @@ export async function resetOperationalData(owner: User): Promise<void> {
   await addAuditLog(owner, 'RESET_DATA', 'Database Lokal', 'Seluruh data operasional dibersihkan untuk mulai dari kosong');
 }
 
-export function generateOutletCode(namaUsaha: string): string {
-  const clean = namaUsaha
-    .replace(/[^a-zA-Z0-9]/g, '')
-    .toUpperCase()
-    .slice(0, 4)
-    .padEnd(4, 'X');
-  const rand = Math.floor(1000 + Math.random() * 9000);
-  return `${clean}-${rand}`;
+/**
+ * Generate ID Outlet standar untuk Usaha Pusat: LM-AXXXXX (A = Pusat, 5 angka acak 10000–99999)
+ */
+export function generateOutletCode(_namaUsaha?: string): string {
+  const rand = Math.floor(10000 + Math.random() * 90000);
+  return `LM-A${rand}`;
+}
+
+/**
+ * Generate ID Outlet untuk Cabang di bawah Pusat: LM-BXXXXX, LM-CXXXXX, dst.
+ * Mengambil 5 digit nomor usaha dari ID Pusat agar seluruh cabang berada dalam 1 seri kode usaha.
+ */
+export function generateBranchOutletCode(
+  parentOutletId: string,
+  existingOutletIds: string[] = []
+): string {
+  const cleanParent = (parentOutletId || '').trim().toUpperCase();
+  const used = new Set(existingOutletIds.map((id) => id.trim().toUpperCase()));
+  if (cleanParent) used.add(cleanParent);
+
+  const lmMatch = cleanParent.match(/^LM-[A-Z]+(\d{5})$/);
+  let digits = lmMatch ? lmMatch[1] : '';
+  if (!digits) {
+    const onlyDigits = cleanParent.replace(/\D/g, '');
+    digits = onlyDigits
+      ? onlyDigits.slice(-5).padStart(5, '0')
+      : String(Math.floor(10000 + Math.random() * 90000));
+  }
+
+  // Mulai dari huruf B, C, D, ..., Z untuk cabang di bawah Pusat (A)
+  for (let code = 66; code <= 90; code++) {
+    const letter = String.fromCharCode(code);
+    const candidate = `LM-${letter}${digits}`;
+    if (!used.has(candidate)) {
+      return candidate;
+    }
+  }
+  // Fallback jika lebih dari 25 cabang: LM-AAXXXXX, LM-ABXXXXX, ...
+  for (let i = 0; i < 26; i++) {
+    const candidate = `LM-B${String.fromCharCode(65 + i)}${digits}`;
+    if (!used.has(candidate)) return candidate;
+  }
+  return `LM-B${Math.floor(10000 + Math.random() * 90000)}`;
 }
 
 /**
@@ -811,13 +846,16 @@ export async function registerNewBusiness(input: {
 
   if (input.includeSampleData) {
     await seedInitialDataIfEmpty();
-    // Ganti profil usaha & akun owner utama dengan input user
+    // Bersihkan user demo bawaan agar tidak menyisakan usr-owner-1 / kasir demo
+    await db.users.clear();
+    // Ganti profil usaha & akun owner utama dengan input user & outletId resmi
     const currentSettings = await db.settings.get('global');
     if (currentSettings) {
       await db.settings.put({
         ...currentSettings,
         namaUsaha: input.namaUsaha.trim(),
         namaCabang: 'Pusat',
+        parentOutletId: undefined,
         ownerEmail: input.email?.trim().toLowerCase() || undefined,
         alamatUsaha: input.alamatUsaha.trim() || '-',
         kasirAuthPin,
@@ -826,7 +864,7 @@ export async function registerNewBusiness(input: {
       });
     }
     const newOwner: User = {
-      id: 'usr-owner-1',
+      id: uuidv4(),
       nama: input.namaOwner.trim(),
       username: input.username.trim(),
       email: input.email?.trim().toLowerCase() || undefined,

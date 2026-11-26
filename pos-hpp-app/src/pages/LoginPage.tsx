@@ -1028,7 +1028,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, onEnterKas
                     type="text"
                     value={loginOutletCode}
                     onChange={(e) => setLoginOutletCode(e.target.value.toUpperCase())}
-                    placeholder="Contoh: KOPI-4821"
+                    placeholder="Contoh: LM-A48291"
                     className="w-full h-10 border border-[#d6d3c8] rounded-[10px] bg-white px-3 text-xs uppercase font-semibold tracking-wider"
                   />
                 </div>

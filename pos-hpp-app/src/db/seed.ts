@@ -62,7 +62,7 @@ export async function seedInitialDataIfEmpty(): Promise<void> {
     defaultKasirRecordExpense: true,
     lastBackupAt: now.toISOString(),
     cloudSyncMode: 'supabase',
-    outletId: 'WARU-8899',
+    outletId: 'LM-A10001',
   };
 
   // 2. Users (sesuai Mockup Pengaturan_dan_Pengguna.html)

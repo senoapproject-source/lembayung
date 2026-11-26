@@ -1057,6 +1057,14 @@ export function App() {
                       prev.map((b) => (b.outletId === updated.outletId ? { ...b, ...updated } : b))
                     )
                   }
+                  onBranchDeleted={async (deletedOid) => {
+                    const remaining = ownerBranches.filter((b) => b.outletId !== deletedOid);
+                    setOwnerBranches(remaining);
+                    if ((settings?.outletId || '').trim().toUpperCase() === deletedOid && remaining.length > 0) {
+                      const pusat = remaining.find((b) => !b.parentOutletId || b.parentOutletId === b.outletId) || remaining[0];
+                      await switchActiveBranch(pusat.outletId);
+                    }
+                  }}
                   onOpenBranchSettings={async (oid) => {
                     await handleNativeBranchSwitch(oid);
                     setActiveView('pengaturan');
