@@ -19,12 +19,12 @@ import {
 import type { MenuItem, PaymentMethod, SavedOrder, Transaction, User } from '../types/models';
 import {
   Bookmark,
+  ChevronLeft,
+  ChevronRight,
   FolderOpen,
   MapPin,
   MessageCircle,
   Minus,
-  PanelRightClose,
-  PanelRightOpen,
   Plus,
   Search,
   ShoppingBag,
@@ -647,9 +647,9 @@ export const PosPage: React.FC<PosPageProps> = ({ user, onOpenHistory }) => {
               type="button"
               onClick={() => setCartPanelCollapsed(false)}
               title="Buka Panel Keranjang Pesanan"
-              className="w-10 h-10 rounded-xl bg-[#faf9f5] hover:bg-[#ece9e0] border border-[#e2e0d8] text-[#4a4947] flex items-center justify-center transition"
+              className="w-8 h-8 rounded-full bg-[#faf9f5] hover:bg-[#e4f1ea] border border-[#e2e0d8] hover:border-[#c5dfd1] text-[#6b6a68] hover:text-[#1F7A5A] flex items-center justify-center transition shadow-2xs"
             >
-              <PanelRightOpen size={18} />
+              <ChevronLeft size={16} />
             </button>
             <button
               type="button"
@@ -694,9 +694,9 @@ export const PosPage: React.FC<PosPageProps> = ({ user, onOpenHistory }) => {
                   type="button"
                   onClick={() => setCartPanelCollapsed(true)}
                   title="Tutup / Perkecil Panel Keranjang"
-                  className="p-1.5 rounded-lg text-[#6b6a68] hover:text-[#1f1e1d] hover:bg-[#ece9e0] transition"
+                  className="w-7 h-7 rounded-full border border-[#e2e0d8] bg-[#faf9f5] text-[#6b6a68] hover:text-[#1F7A5A] hover:border-[#c5dfd1] hover:bg-[#e4f1ea] flex items-center justify-center transition shadow-2xs"
                 >
-                  <PanelRightClose size={16} />
+                  <ChevronRight size={15} />
                 </button>
               </div>
             </div>

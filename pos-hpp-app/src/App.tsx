@@ -62,12 +62,12 @@ import {
   BarChart3,
   BookOpen,
   Building2,
+  ChevronLeft,
+  ChevronRight,
   Clock,
   LogOut,
   Moon,
   Package,
-  PanelLeftClose,
-  PanelLeftOpen,
   Power,
   QrCode,
   Receipt,
@@ -827,9 +827,9 @@ export function App() {
               type="button"
               onClick={() => setSidebarCollapsed((v) => !v)}
               title={sidebarCollapsed ? 'Buka Sidebar' : 'Tutup / Perkecil Sidebar'}
-              className="p-1.5 rounded-lg text-[#6b6a68] hover:text-[#1f1e1d] hover:bg-[#ece9e0] transition shrink-0"
+              className="w-7 h-7 rounded-full border border-[#e2e0d8] bg-[#faf9f5] text-[#6b6a68] hover:text-[#1F7A5A] hover:border-[#c5dfd1] hover:bg-[#e4f1ea] flex items-center justify-center transition shrink-0 shadow-2xs"
             >
-              {sidebarCollapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
+              {sidebarCollapsed ? <ChevronRight size={15} /> : <ChevronLeft size={15} />}
             </button>
           </div>
 
