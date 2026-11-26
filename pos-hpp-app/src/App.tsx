@@ -66,6 +66,8 @@ import {
   LogOut,
   Moon,
   Package,
+  PanelLeftClose,
+  PanelLeftOpen,
   Power,
   QrCode,
   Receipt,
@@ -124,6 +126,7 @@ export function App() {
   const [switchingBranch, setSwitchingBranch] = useState<boolean>(false);
   const [showSelfOrderShare, setShowSelfOrderShare] = useState<boolean>(false);
   const [togglingOwnerStore, setTogglingOwnerStore] = useState<boolean>(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(false);
   const [kasirModeActive, setKasirModeActive] = useState<boolean>(
     () => localStorage.getItem(KASIR_MODE_KEY) === '1'
   );
@@ -794,28 +797,44 @@ export function App() {
       {/* ====================================================================
           SIDEBAR NAVIGASI UNTUK TABLET & DESKTOP (md:flex)
          ==================================================================== */}
-      <aside className="hidden md:flex md:w-[216px] lg:w-[238px] bg-white border-r border-[#e2e0d8] flex-col justify-between shrink-0 select-none">
-        <div className="p-3.5 flex flex-col gap-4 overflow-y-auto">
-          {/* Brand Header */}
-          <div className="flex items-center gap-2.5 px-1">
-            <CuaninLogo size={34} />
-            <div className="min-w-0">
-              <div className="font-bold text-sm text-[#1f1e1d] leading-tight truncate flex items-center gap-1.5">
-                <span className="truncate">{settings?.namaUsaha || 'Lembayung'}</span>
-                {getAppEnvironment() === 'testing' && (
-                  <span className="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded bg-[#fbeed9] text-[#7a4300] shrink-0">
-                    TEST
-                  </span>
-                )}
-              </div>
-              <div className="text-[11px] font-medium text-[#1F7A5A]">
-                POS &amp; HPP
-              </div>
+      <aside
+        className={`hidden md:flex bg-white border-r border-[#e2e0d8] flex-col justify-between shrink-0 select-none transition-all duration-200 ${
+          sidebarCollapsed ? 'md:w-[68px]' : 'md:w-[216px] lg:w-[238px]'
+        }`}
+      >
+        <div className={`${sidebarCollapsed ? 'p-2 items-center' : 'p-3.5'} flex flex-col gap-3.5 overflow-y-auto`}>
+          {/* Brand Header + Tombol Collapse/Expand Sidebar */}
+          <div className={`flex items-center w-full ${sidebarCollapsed ? 'flex-col gap-2' : 'justify-between gap-2 px-1'}`}>
+            <div className={`flex items-center gap-2.5 min-w-0 ${sidebarCollapsed ? 'justify-center' : ''}`}>
+              <CuaninLogo size={sidebarCollapsed ? 30 : 34} />
+              {!sidebarCollapsed && (
+                <div className="min-w-0">
+                  <div className="font-bold text-sm text-[#1f1e1d] leading-tight truncate flex items-center gap-1.5">
+                    <span className="truncate">{settings?.namaUsaha || 'Lembayung'}</span>
+                    {getAppEnvironment() === 'testing' && (
+                      <span className="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded bg-[#fbeed9] text-[#7a4300] shrink-0">
+                        TEST
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-[11px] font-medium text-[#1F7A5A]">
+                    POS &amp; HPP
+                  </div>
+                </div>
+              )}
             </div>
+            <button
+              type="button"
+              onClick={() => setSidebarCollapsed((v) => !v)}
+              title={sidebarCollapsed ? 'Buka Sidebar' : 'Tutup / Perkecil Sidebar'}
+              className="p-1.5 rounded-lg text-[#6b6a68] hover:text-[#1f1e1d] hover:bg-[#ece9e0] transition shrink-0"
+            >
+              {sidebarCollapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
+            </button>
           </div>
 
-          {/* Branch Switcher di Sidebar Tablet (Khusus Owner > 1 Cabang) */}
-          {isOwner && ownerBranches.length > 1 && (
+          {/* Branch Switcher di Sidebar Tablet (Khusus Owner > 1 Cabang saat sidebar terbuka) */}
+          {!sidebarCollapsed && isOwner && ownerBranches.length > 1 && (
             <div className="bg-[#faf9f5] border border-[#e2e0d8] rounded-xl p-2 flex flex-col gap-1">
               <div className="text-[10px] font-bold uppercase tracking-wider text-[#6b6a68]">
                 Cabang Aktif
@@ -836,59 +855,77 @@ export function App() {
           )}
 
           {/* Status Toko & Akses Cepat QR Self-Order di Sidebar */}
-          <div className="grid grid-cols-2 gap-1.5">
+          <div className={sidebarCollapsed ? 'flex flex-col gap-1.5 w-full items-center' : 'grid grid-cols-2 gap-1.5 w-full'}>
             {isOwner ? (
               <button
                 type="button"
                 disabled={togglingOwnerStore}
                 onClick={handleToggleStoreByOwner}
-                title="Klik untuk Buka / Tutup Toko langsung tanpa input modal uang"
-                className={`h-8 px-2 rounded-xl border text-[11px] font-semibold flex items-center justify-center gap-1 transition whitespace-nowrap ${
+                title={
+                  storeOpenState.isStoreOpen
+                    ? 'Toko Buka — Klik untuk Tutup Toko langsung'
+                    : 'Toko Tutup — Klik untuk Buka Toko langsung'
+                }
+                className={`h-8 rounded-xl border text-[11px] font-semibold flex items-center justify-center gap-1 transition whitespace-nowrap ${
+                  sidebarCollapsed ? 'w-10 px-0' : 'px-2'
+                } ${
                   storeOpenState.isStoreOpen
                     ? 'border-[#c5dfd1] bg-[#e4f1ea] text-[#15803d] hover:bg-[#d5eadf]'
                     : 'border-[#f5c2bc] bg-[#fbe4e1] text-[#9b1c12] hover:bg-[#f7d0cb]'
                 }`}
               >
-                <Power size={12} />
-                <span>{storeOpenState.isStoreOpen ? 'Toko Buka' : 'Toko Tutup'}</span>
+                <Power size={13} />
+                {!sidebarCollapsed && (
+                  <span>{storeOpenState.isStoreOpen ? 'Toko Buka' : 'Toko Tutup'}</span>
+                )}
               </button>
             ) : (
               <div
-                className={`h-8 px-2 rounded-xl border text-[11px] font-semibold flex items-center justify-center gap-1 whitespace-nowrap ${
+                title={storeOpenState.isStoreOpen ? 'Toko Buka' : 'Toko Tutup'}
+                className={`h-8 rounded-xl border text-[11px] font-semibold flex items-center justify-center gap-1 whitespace-nowrap ${
+                  sidebarCollapsed ? 'w-10 px-0' : 'px-2'
+                } ${
                   storeOpenState.isStoreOpen
                     ? 'border-[#c5dfd1] bg-[#e4f1ea] text-[#15803d]'
                     : 'border-[#e2e0d8] bg-[#faf9f5] text-[#6b6a68]'
                 }`}
               >
                 <span
-                  className={`w-1.5 h-1.5 rounded-full ${
+                  className={`w-2 h-2 rounded-full ${
                     storeOpenState.isStoreOpen ? 'bg-[#16a34a]' : 'bg-[#9ca3af]'
                   }`}
                 />
-                <span>{storeOpenState.isStoreOpen ? 'Toko Buka' : 'Toko Tutup'}</span>
+                {!sidebarCollapsed && (
+                  <span>{storeOpenState.isStoreOpen ? 'Toko Buka' : 'Toko Tutup'}</span>
+                )}
               </div>
             )}
             <button
               type="button"
               onClick={() => setShowSelfOrderShare(true)}
               title="Bagikan QR & Link Self-Order / Delivery / Pesan Bareng"
-              className="h-8 px-2 rounded-xl border border-[#c5dfd1] bg-[#f4f9f6] hover:bg-[#e4f1ea] text-[#1F7A5A] text-[11px] font-semibold flex items-center justify-center gap-1 transition whitespace-nowrap"
+              className={`h-8 rounded-xl border border-[#c5dfd1] bg-[#f4f9f6] hover:bg-[#e4f1ea] text-[#1F7A5A] text-[11px] font-semibold flex items-center justify-center gap-1 transition whitespace-nowrap ${
+                sidebarCollapsed ? 'w-10 px-0' : 'px-2'
+              }`}
             >
-              <QrCode size={12} />
-              <span>QR Order</span>
+              <QrCode size={13} />
+              {!sidebarCollapsed && <span>QR Order</span>}
             </button>
           </div>
 
           {/* Menu Utama Sidebar */}
-          <nav className="flex flex-col gap-1">
-            <div className="text-[10px] font-bold uppercase tracking-wider text-[#6b6a68] px-3 mb-0.5">
-              Menu Utama
-            </div>
+          <nav className="flex flex-col gap-1 w-full">
+            {!sidebarCollapsed && (
+              <div className="text-[10px] font-bold uppercase tracking-wider text-[#6b6a68] px-3 mb-0.5">
+                Menu Utama
+              </div>
+            )}
             <SidebarItem
               active={safeView === 'kasir'}
               onClick={() => setActiveView('kasir')}
               icon={<ShoppingCart size={17} />}
               label="Kasir (POS)"
+              collapsed={sidebarCollapsed}
             />
             {isOwner && (
               <>
@@ -897,36 +934,45 @@ export function App() {
                   onClick={() => setActiveView('resep')}
                   icon={<BookOpen size={17} />}
                   label="Resep & Menu"
+                  collapsed={sidebarCollapsed}
                 />
                 <SidebarItem
                   active={safeView === 'bahan'}
                   onClick={() => setActiveView('bahan')}
                   icon={<Package size={17} />}
                   label="Bahan Baku"
+                  collapsed={sidebarCollapsed}
                 />
                 <SidebarItem
                   active={safeView === 'laporan'}
                   onClick={() => setActiveView('laporan')}
                   icon={<BarChart3 size={17} />}
                   label="Laporan & Grafik"
+                  collapsed={sidebarCollapsed}
                 />
                 <SidebarItem
                   active={safeView === 'target'}
                   onClick={() => setActiveView('target')}
                   icon={<Target size={17} />}
                   label="Target & BEP"
+                  collapsed={sidebarCollapsed}
                 />
               </>
             )}
 
-            <div className="text-[10px] font-bold uppercase tracking-wider text-[#6b6a68] px-3 mt-2.5 mb-0.5">
-              Operasional
-            </div>
+            {!sidebarCollapsed ? (
+              <div className="text-[10px] font-bold uppercase tracking-wider text-[#6b6a68] px-3 mt-2.5 mb-0.5">
+                Operasional
+              </div>
+            ) : (
+              <div className="border-t border-[#eeece5] my-1.5" />
+            )}
             <SidebarItem
               active={safeView === 'riwayat'}
               onClick={() => setActiveView('riwayat')}
               icon={<Receipt size={17} />}
               label="Riwayat Transaksi"
+              collapsed={sidebarCollapsed}
             />
             {(isOwner || currentUser.canRecordExpense) && (
               <SidebarItem
@@ -934,6 +980,7 @@ export function App() {
                 onClick={() => setActiveView('pengeluaran')}
                 icon={<Wallet size={17} />}
                 label="Pengeluaran"
+                collapsed={sidebarCollapsed}
               />
             )}
             {isManagerOrOwner && (
@@ -942,6 +989,7 @@ export function App() {
                 onClick={() => setActiveView('absensi')}
                 icon={<Clock size={17} />}
                 label="Absensi Tim"
+                collapsed={sidebarCollapsed}
               />
             )}
             {isOwner && (
@@ -950,57 +998,92 @@ export function App() {
                 onClick={() => setActiveView('pengaturan')}
                 icon={<Settings size={17} />}
                 label="Cabang & Pengaturan"
+                collapsed={sidebarCollapsed}
               />
             )}
           </nav>
         </div>
 
         {/* Footer Sidebar (Status Cloud, Absen, Tutup Kasir, User, Dark Mode, Kunci PIN) */}
-        <div className="p-3 border-t border-[#e2e0d8] flex flex-col gap-2 bg-[#faf9f5]">
+        <div className={`${sidebarCollapsed ? 'p-2 items-center' : 'p-3'} border-t border-[#e2e0d8] flex flex-col gap-2 bg-[#faf9f5]`}>
           {!isOwner && (
             <button
               type="button"
               onClick={() => setShowAttendanceKiosk(true)}
-              className="w-full h-9 rounded-xl bg-[#e4f1ea] hover:bg-[#d5eadf] text-[#1F7A5A] font-semibold text-xs flex items-center justify-center gap-1.5 transition"
+              title="Absen Karyawan"
+              className={`h-9 rounded-xl bg-[#e4f1ea] hover:bg-[#d5eadf] text-[#1F7A5A] font-semibold text-xs flex items-center justify-center gap-1.5 transition ${
+                sidebarCollapsed ? 'w-10 px-0' : 'w-full'
+              }`}
             >
-              <Clock size={13} /> Absen Karyawan
+              <Clock size={14} />
+              {!sidebarCollapsed && <span>Absen Karyawan</span>}
             </button>
           )}
           {!isOwner && activeCashierShift && (
             <button
               type="button"
               onClick={() => setShowCloseShiftModal(true)}
-              className="w-full h-9 rounded-xl bg-[#fbe4e1] hover:bg-[#f7d0cb] text-[#9b1c12] font-semibold text-xs flex items-center justify-center gap-1.5 transition"
+              title="Tutup Kasir"
+              className={`h-9 rounded-xl bg-[#fbe4e1] hover:bg-[#f7d0cb] text-[#9b1c12] font-semibold text-xs flex items-center justify-center gap-1.5 transition ${
+                sidebarCollapsed ? 'w-10 px-0' : 'w-full'
+              }`}
             >
-              <LogOut size={13} /> Tutup Kasir
+              <LogOut size={14} />
+              {!sidebarCollapsed && <span>Tutup Kasir</span>}
             </button>
           )}
-          <div className="text-xs px-1 flex items-center justify-between gap-2">
-            <span>{syncStatusBadge}</span>
-            <span className="text-[10px] font-medium text-[#6b6a68] shrink-0">
-              v{getInstalledAppVersion()}
-            </span>
-          </div>
-          <div className="flex items-center justify-between gap-2 bg-white border border-[#e2e0d8] rounded-xl p-2">
-            <div className="flex items-center gap-2 min-w-0">
-              <div className="w-7 h-7 rounded-full bg-[#e4f1ea] text-[#1F7A5A] flex items-center justify-center font-bold text-xs shrink-0">
-                {currentUser.nama.slice(0, 1).toUpperCase()}
+          {!sidebarCollapsed ? (
+            <>
+              <div className="text-xs px-1 flex items-center justify-between gap-2">
+                <span>{syncStatusBadge}</span>
+                <span className="text-[10px] font-medium text-[#6b6a68] shrink-0">
+                  v{getInstalledAppVersion()}
+                </span>
               </div>
-              <div className="min-w-0">
-                <div className="font-semibold text-xs text-[#1f1e1d] truncate">
-                  {currentUser.nama}
+              <div className="flex items-center justify-between gap-2 bg-white border border-[#e2e0d8] rounded-xl p-2">
+                <div className="flex items-center gap-2 min-w-0">
+                  <div className="w-7 h-7 rounded-full bg-[#e4f1ea] text-[#1F7A5A] flex items-center justify-center font-bold text-xs shrink-0">
+                    {currentUser.nama.slice(0, 1).toUpperCase()}
+                  </div>
+                  <div className="min-w-0">
+                    <div className="font-semibold text-xs text-[#1f1e1d] truncate">
+                      {currentUser.nama}
+                    </div>
+                    <div className="text-[10px] text-[#6b6a68]">
+                      {isOwner ? 'Owner' : currentUser.role === 'manager' ? 'Manager' : 'Kasir'}
+                    </div>
+                  </div>
                 </div>
-                <div className="text-[10px] text-[#6b6a68]">
-                  {isOwner ? 'Owner' : currentUser.role === 'manager' ? 'Manager' : 'Kasir'}
+                <div className="flex items-center gap-0.5 shrink-0">
+                  <button
+                    type="button"
+                    onClick={toggleDarkMode}
+                    title={darkMode ? 'Mode Terang' : 'Mode Gelap'}
+                    className="p-1.5 rounded-lg text-[#4a4947] hover:bg-[#ece9e0] transition"
+                  >
+                    {darkMode ? <Sun size={15} /> : <Moon size={15} />}
+                  </button>
+                  {isOwner && (
+                    <button
+                      type="button"
+                      onClick={handleLockToPin}
+                      title="Ganti Kasir / Kunci PIN"
+                      className="p-1.5 rounded-lg text-[#9b1c12] hover:bg-[#fbe4e1] transition"
+                    >
+                      <LogOut size={15} />
+                    </button>
+                  )}
                 </div>
               </div>
-            </div>
-            <div className="flex items-center gap-0.5 shrink-0">
+            </>
+          ) : (
+            <div className="flex flex-col items-center gap-1.5">
+              <div>{syncStatusBadge}</div>
               <button
                 type="button"
                 onClick={toggleDarkMode}
                 title={darkMode ? 'Mode Terang' : 'Mode Gelap'}
-                className="p-1.5 rounded-lg text-[#4a4947] hover:bg-[#ece9e0] transition"
+                className="p-2 rounded-lg text-[#4a4947] hover:bg-[#ece9e0] transition"
               >
                 {darkMode ? <Sun size={15} /> : <Moon size={15} />}
               </button>
@@ -1009,13 +1092,13 @@ export function App() {
                   type="button"
                   onClick={handleLockToPin}
                   title="Ganti Kasir / Kunci PIN"
-                  className="p-1.5 rounded-lg text-[#9b1c12] hover:bg-[#fbe4e1] transition"
+                  className="p-2 rounded-lg text-[#9b1c12] hover:bg-[#fbe4e1] transition"
                 >
                   <LogOut size={15} />
                 </button>
               )}
             </div>
-          </div>
+          )}
         </div>
       </aside>
 
@@ -1389,20 +1472,24 @@ interface SidebarItemProps {
   onClick: () => void;
   icon: React.ReactNode;
   label: string;
+  collapsed?: boolean;
 }
 
-const SidebarItem: React.FC<SidebarItemProps> = ({ active, onClick, icon, label }) => (
+const SidebarItem: React.FC<SidebarItemProps> = ({ active, onClick, icon, label, collapsed }) => (
   <button
     type="button"
     onClick={onClick}
-    className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-[13px] text-left transition ${
+    title={collapsed ? label : undefined}
+    className={`w-full flex items-center rounded-xl text-[13px] transition ${
+      collapsed ? 'justify-center px-0 py-2.5' : 'gap-2.5 px-3 py-2.5 text-left'
+    } ${
       active
         ? 'bg-[#e4f1ea] text-[#1F7A5A] font-semibold'
         : 'text-[#4a4947] hover:bg-[#faf9f5] font-medium'
     }`}
   >
     <span className="shrink-0 flex items-center">{icon}</span>
-    <span className="truncate leading-snug">{label}</span>
+    {!collapsed && <span className="truncate leading-snug">{label}</span>}
   </button>
 );
 

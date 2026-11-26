@@ -23,6 +23,8 @@ import {
   MapPin,
   MessageCircle,
   Minus,
+  PanelRightClose,
+  PanelRightOpen,
   Plus,
   Search,
   ShoppingBag,
@@ -55,6 +57,7 @@ export const PosPage: React.FC<PosPageProps> = ({ user, onOpenHistory }) => {
   );
 
   const [search, setSearch] = useState('');
+  const [cartPanelCollapsed, setCartPanelCollapsed] = useState(false);
   const [deleteOrderTarget, setDeleteOrderTarget] = useState<SavedOrder | null>(null);
   const [deleteOrderPin, setDeleteOrderPin] = useState('');
   const [deleteOrderReason, setDeleteOrderReason] = useState('');
@@ -629,40 +632,90 @@ export const PosPage: React.FC<PosPageProps> = ({ user, onOpenHistory }) => {
       </div>
 
       {/* ====================================================================
-          KOLOM KANAN: PANEL KERANJANG & PEMBAYARAN KHUSUS TABLET (md:flex)
+          KOLOM KANAN: PANEL KERANJANG & PEMBAYARAN KHUSUS TABLET (md:flex, collapsible)
          ==================================================================== */}
-      <aside className="hidden md:flex md:w-[310px] lg:w-[360px] bg-white border-l border-[#e2e0d8] flex-col justify-between p-4 pb-6 shrink-0 overflow-y-auto">
-        <div className="flex flex-col gap-3">
-          <div className="flex justify-between items-center pb-2 border-b border-[#eeece5]">
-            <div className="flex items-center gap-2">
-              <ShoppingBag size={18} className="text-[#1F7A5A]" />
-              <span className="font-bold text-base">Keranjang Pesanan</span>
+      <aside
+        className={`hidden md:flex bg-white border-l border-[#e2e0d8] flex-col shrink-0 transition-all duration-200 ${
+          cartPanelCollapsed
+            ? 'md:w-[60px] p-2 items-center justify-start gap-3'
+            : 'md:w-[310px] lg:w-[360px] justify-between p-4 pb-6 overflow-y-auto'
+        }`}
+      >
+        {cartPanelCollapsed ? (
+          <>
+            <button
+              type="button"
+              onClick={() => setCartPanelCollapsed(false)}
+              title="Buka Panel Keranjang Pesanan"
+              className="w-10 h-10 rounded-xl bg-[#faf9f5] hover:bg-[#ece9e0] border border-[#e2e0d8] text-[#4a4947] flex items-center justify-center transition"
+            >
+              <PanelRightOpen size={18} />
+            </button>
+            <button
+              type="button"
+              onClick={() => setCartPanelCollapsed(false)}
+              title={
+                totalItems > 0
+                  ? `Buka Keranjang (${totalItems} item · ${formatRupiah(grandTotal)})`
+                  : 'Keranjang Pesanan masih kosong'
+              }
+              className={`relative w-10 h-10 rounded-xl flex items-center justify-center transition ${
+                totalItems > 0
+                  ? 'bg-[#1F7A5A] text-white shadow-sm'
+                  : 'bg-[#e4f1ea] text-[#1F7A5A]'
+              }`}
+            >
+              <ShoppingBag size={18} />
+              {totalItems > 0 && (
+                <span className="absolute -top-1.5 -right-1.5 min-w-[20px] h-5 px-1 rounded-full bg-[#9b1c12] text-white text-[10px] font-bold flex items-center justify-center">
+                  {totalItems}
+                </span>
+              )}
+            </button>
+          </>
+        ) : (
+          <div className="flex flex-col gap-3">
+            <div className="flex justify-between items-center pb-2 border-b border-[#eeece5]">
+              <div className="flex items-center gap-2 min-w-0">
+                <ShoppingBag size={18} className="text-[#1F7A5A] shrink-0" />
+                <span className="font-bold text-base truncate">Keranjang Pesanan</span>
+              </div>
+              <div className="flex items-center gap-1.5 shrink-0">
+                {cart.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={clearCartState}
+                    className="text-xs font-semibold text-[#9b1c12] hover:underline"
+                  >
+                    Kosongkan
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setCartPanelCollapsed(true)}
+                  title="Tutup / Perkecil Panel Keranjang"
+                  className="p-1.5 rounded-lg text-[#6b6a68] hover:text-[#1f1e1d] hover:bg-[#ece9e0] transition"
+                >
+                  <PanelRightClose size={16} />
+                </button>
+              </div>
             </div>
-            {cart.length > 0 && (
-              <button
-                type="button"
-                onClick={clearCartState}
-                className="text-xs font-semibold text-[#9b1c12] hover:underline"
-              >
-                Kosongkan
-              </button>
+
+            {cart.length === 0 ? (
+              <div className="py-16 flex flex-col items-center justify-center text-center gap-2 text-[#6b6a68]">
+                <div className="w-12 h-12 rounded-2xl bg-[#faf9f5] border border-[#e2e0d8] flex items-center justify-center">
+                  <ShoppingBag size={22} className="opacity-50" />
+                </div>
+                <div className="text-sm font-medium">Keranjang masih kosong</div>
+                <div className="text-xs max-w-[220px]">
+                  Ketuk menu di sebelah kiri untuk menambahkan pesanan pelanggan.
+                </div>
+              </div>
+            ) : (
+              renderCheckoutControls(true)
             )}
           </div>
-
-          {cart.length === 0 ? (
-            <div className="py-16 flex flex-col items-center justify-center text-center gap-2 text-[#6b6a68]">
-              <div className="w-12 h-12 rounded-2xl bg-[#faf9f5] border border-[#e2e0d8] flex items-center justify-center">
-                <ShoppingBag size={22} className="opacity-50" />
-              </div>
-              <div className="text-sm font-medium">Keranjang masih kosong</div>
-              <div className="text-xs max-w-[220px]">
-                Ketuk menu di sebelah kiri untuk menambahkan pesanan pelanggan.
-              </div>
-            </div>
-          ) : (
-            renderCheckoutControls(true)
-          )}
-        </div>
+        )}
       </aside>
 
       {/* ====================================================================
