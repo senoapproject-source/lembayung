@@ -7,7 +7,7 @@ import { sendDeviceNotification } from '../services/notificationService';
 import { formatRibuanInput, formatRupiah, formatTanggalPendek, stripNonDigits } from '../lib/calculations';
 import { CustomSelect } from '../components/CustomSelect';
 import type { CashierShift, Expense, User } from '../types/models';
-import { Camera, Plus, X } from 'lucide-react';
+import { Camera, Download, Eye, Plus, Trash2, X } from 'lucide-react';
 
 interface ExpensesPageProps {
   user: User;
@@ -22,6 +22,7 @@ export const ExpensesPage: React.FC<ExpensesPageProps> = ({ user, activeShift, o
 
   const [selectedCat, setSelectedCat] = useState('Semua');
   const [showAddSheet, setShowAddSheet] = useState(false);
+  const [previewExpense, setPreviewExpense] = useState<Expense | null>(null);
 
   const todayStr = new Date().toISOString().slice(0, 10);
 
@@ -223,9 +224,13 @@ export const ExpensesPage: React.FC<ExpensesPageProps> = ({ user, activeShift, o
                       </span>
                     )}
                     {exp.lampiranFoto && (
-                      <span className="text-[11px] font-semibold px-2 py-0.5 rounded-[10px] bg-[#ece9e0] text-[#4a4947]">
-                        Nota terlampir
-                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setPreviewExpense(exp)}
+                        className="text-[11px] font-semibold px-2.5 py-0.5 rounded-[10px] bg-[#e4f1ea] hover:bg-[#d3e8dc] text-[#1F7A5A] border border-[#c5dfd1] inline-flex items-center gap-1 transition"
+                      >
+                        <Eye size={11} /> Lihat Nota
+                      </button>
                     )}
                   </div>
                 </div>
@@ -337,14 +342,36 @@ export const ExpensesPage: React.FC<ExpensesPageProps> = ({ user, activeShift, o
                 </div>
               )}
 
-              <div className="flex justify-between items-center">
-                <span className="text-xs text-[#6b6a68]">
-                  {lampiranFoto ? 'Foto nota terlampir ✓' : 'Lampiran foto nota (opsional)'}
-                </span>
-                <label className="text-[13px] font-semibold text-[#1F7A5A] cursor-pointer flex items-center gap-1">
-                  <Camera size={14} /> + Foto nota
-                  <input type="file" accept="image/*" onChange={handlePhotoUpload} className="hidden" />
-                </label>
+              <div className="flex flex-col gap-2">
+                <div className="flex justify-between items-center">
+                  <span className="text-xs text-[#6b6a68]">
+                    {lampiranFoto ? 'Foto nota terlampir ✓' : 'Lampiran foto nota (opsional)'}
+                  </span>
+                  <label className="text-[13px] font-semibold text-[#1F7A5A] cursor-pointer flex items-center gap-1">
+                    <Camera size={14} /> {lampiranFoto ? 'Ganti foto' : '+ Foto nota'}
+                    <input type="file" accept="image/*" onChange={handlePhotoUpload} className="hidden" />
+                  </label>
+                </div>
+                {lampiranFoto && (
+                  <div className="relative rounded-xl border border-[#e2e0d8] bg-[#faf9f5] p-2 flex items-center gap-3">
+                    <img
+                      src={lampiranFoto}
+                      alt="Preview nota"
+                      className="w-16 h-16 rounded-lg object-cover border border-[#d6d3c8] shrink-0"
+                    />
+                    <div className="flex-1 min-w-0 text-[11px] text-[#4a4947]">
+                      Foto nota siap disimpan bersama pengeluaran ini.
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setLampiranFoto(undefined)}
+                      title="Hapus foto nota"
+                      className="p-1.5 rounded-lg text-[#9b1c12] hover:bg-[#fbe4e1] shrink-0"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                )}
               </div>
 
               <button
@@ -354,6 +381,63 @@ export const ExpensesPage: React.FC<ExpensesPageProps> = ({ user, activeShift, o
                 Simpan pengeluaran
               </button>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Preview Foto Nota Pengeluaran */}
+      {previewExpense && previewExpense.lampiranFoto && (
+        <div
+          className="fixed inset-0 z-50 bg-black/65 flex items-center justify-center p-4"
+          onClick={() => setPreviewExpense(null)}
+        >
+          <div
+            className="bg-white w-full max-w-[480px] rounded-2xl p-4 flex flex-col gap-3 max-h-[90vh] shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-2 border-b border-[#eeece5] pb-2.5">
+              <div className="min-w-0">
+                <div className="font-bold text-sm text-[#1f1e1d] truncate">
+                  Foto Nota · {previewExpense.categoryNama}
+                </div>
+                <div className="text-xs text-[#6b6a68] truncate">
+                  {previewExpense.keterangan} · {formatTanggalPendek(previewExpense.tanggal)} ·{' '}
+                  <strong className="text-[#1F7A5A]">{formatRupiah(previewExpense.nominal)}</strong>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPreviewExpense(null)}
+                className="p-1 rounded-lg text-[#6b6a68] hover:bg-[#ece9e0]"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="bg-[#faf9f5] border border-[#e2e0d8] rounded-xl p-2 flex items-center justify-center overflow-auto max-h-[65vh]">
+              <img
+                src={previewExpense.lampiranFoto}
+                alt={`Nota ${previewExpense.keterangan}`}
+                className="max-w-full max-h-[60vh] object-contain rounded-lg"
+              />
+            </div>
+
+            <div className="flex justify-end gap-2">
+              <a
+                href={previewExpense.lampiranFoto}
+                download={`nota-${previewExpense.tanggal}-${previewExpense.categoryNama.replace(/\s+/g, '-').toLowerCase()}.png`}
+                className="h-9 px-3.5 rounded-xl border border-[#1F7A5A] text-[#1F7A5A] hover:bg-[#e4f1ea] text-xs font-semibold inline-flex items-center gap-1.5"
+              >
+                <Download size={14} /> Unduh Nota
+              </a>
+              <button
+                type="button"
+                onClick={() => setPreviewExpense(null)}
+                className="h-9 px-4 rounded-xl bg-[#1F7A5A] hover:bg-[#15563f] text-white text-xs font-semibold"
+              >
+                Tutup
+              </button>
+            </div>
           </div>
         </div>
       )}
