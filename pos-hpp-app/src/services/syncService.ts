@@ -241,12 +241,52 @@ export function resolveFallbackOutletId(
 ): string {
   const existing = (settings?.outletId || '').trim().toUpperCase();
   if (existing) return existing;
-  const prefix = (settings?.namaUsaha || 'TOKO')
-    .replace(/[^a-zA-Z0-9]/g, '')
-    .toUpperCase()
-    .slice(0, 4)
-    .padEnd(4, 'X');
-  return `${prefix}-8899`;
+  return 'LM-A10001';
+}
+
+/**
+ * Verifikasi apakah outlet_id yang tersimpan di perangkat masih terdaftar & aktif di Cloud.
+ * Jika outlet sudah dimigrasi ke kode baru (LM-AXXXXX) atau cabang sudah dihapus oleh Owner,
+ * kembalikan valid: false agar perangkat otomatis logout paksa & tidak mem-push ulang ID lama.
+ */
+export async function verifyActiveOutletInCloud(
+  userRole?: string
+): Promise<{ valid: boolean; reason?: 'not_found' | 'deactivated'; outletId?: string }> {
+  if (typeof navigator !== 'undefined' && !navigator.onLine) {
+    return { valid: true };
+  }
+  const settings = await db.settings.get('global');
+  const oid = (settings?.outletId || '').trim().toUpperCase();
+  if (!oid || oid === 'LM-A10001') {
+    return { valid: true, outletId: oid };
+  }
+  try {
+    const client = getSupabaseClient(settings);
+    const { data, error } = await client
+      .from('outlets')
+      .select('outlet_id, work_shifts')
+      .eq('outlet_id', oid)
+      .maybeSingle();
+    if (error) {
+      // Error jaringan/server sementara -> jangan logout paksa
+      return { valid: true, outletId: oid };
+    }
+    if (!data) {
+      return { valid: false, reason: 'not_found', outletId: oid };
+    }
+    const rawShifts = (data as Record<string, any>).work_shifts;
+    const first = Array.isArray(rawShifts)
+      ? ((rawShifts[0] as Record<string, any> | undefined)?.storeHoursConfig as
+          | { branchActive?: boolean }
+          | undefined)
+      : undefined;
+    if (first?.branchActive === false && userRole !== 'owner') {
+      return { valid: false, reason: 'deactivated', outletId: oid };
+    }
+    return { valid: true, outletId: oid };
+  } catch {
+    return { valid: true, outletId: oid };
+  }
 }
 
 export function getSupabaseConfig(settings?: AppSettings): {

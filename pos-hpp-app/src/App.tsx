@@ -10,6 +10,7 @@ import {
   initOtaUpdater,
   processSyncQueue,
   syncWithCloud,
+  verifyActiveOutletInCloud,
   type AppUpdateInfo,
 } from './services/syncService';
 import {
@@ -213,10 +214,28 @@ export function App() {
       if (navigator.onLine) {
         const hasSettings = await db.settings.get('global');
         if (hasSettings) {
-          setIsAutoSyncing(true);
-          await syncWithCloud().catch(() => {});
-          setIsAutoSyncing(false);
-          startRealtimeTransactionNotifications();
+          const savedUid = localStorage.getItem(SESSION_KEY);
+          const savedUser = savedUid ? await db.users.get(savedUid) : undefined;
+          const outletCheck = await verifyActiveOutletInCloud(savedUser?.role);
+          if (!outletCheck.valid) {
+            unregisterFcmPushToken().catch(() => {});
+            localStorage.removeItem(SESSION_KEY);
+            localStorage.removeItem(REMEMBERED_USER_KEY);
+            localStorage.removeItem(KASIR_MODE_KEY);
+            await db.syncQueue.clear().catch(() => {});
+            setKasirModeActive(false);
+            setCurrentUserId(null);
+            alert(
+              outletCheck.reason === 'deactivated'
+                ? `Cabang (${outletCheck.outletId}) sedang dinonaktifkan oleh Owner. Anda telah dikeluarkan otomatis.`
+                : `ID Outlet toko Anda (${outletCheck.outletId}) telah diperbarui ke format standar baru (LM-AXXXXX) atau sudah dihapus. Silakan Login ulang menggunakan Email/Username Anda.`
+            );
+          } else {
+            setIsAutoSyncing(true);
+            await syncWithCloud().catch(() => {});
+            setIsAutoSyncing(false);
+            startRealtimeTransactionNotifications();
+          }
         }
         checkAndNotifyUpdate().catch(() => {});
       }
@@ -270,8 +289,26 @@ export function App() {
     };
     const handleOffline = () => setIsOnline(false);
 
-    const handleVisibility = () => {
+    const handleVisibility = async () => {
       if (document.visibilityState === 'visible' && navigator.onLine) {
+        const savedUid = localStorage.getItem(SESSION_KEY);
+        const savedUser = savedUid ? await db.users.get(savedUid) : undefined;
+        const outletCheck = await verifyActiveOutletInCloud(savedUser?.role);
+        if (!outletCheck.valid) {
+          unregisterFcmPushToken().catch(() => {});
+          localStorage.removeItem(SESSION_KEY);
+          localStorage.removeItem(REMEMBERED_USER_KEY);
+          localStorage.removeItem(KASIR_MODE_KEY);
+          await db.syncQueue.clear().catch(() => {});
+          setKasirModeActive(false);
+          setCurrentUserId(null);
+          alert(
+            outletCheck.reason === 'deactivated'
+              ? `Cabang (${outletCheck.outletId}) sedang dinonaktifkan oleh Owner. Anda telah dikeluarkan otomatis.`
+              : `ID Outlet toko Anda (${outletCheck.outletId}) telah diperbarui ke format standar baru (LM-AXXXXX) atau sudah dihapus. Silakan Login ulang menggunakan Email/Username Anda.`
+          );
+          return;
+        }
         syncWithCloud().catch(() => {});
         startRealtimeTransactionNotifications();
         checkAndNotifyUpdate().catch(() => {});
