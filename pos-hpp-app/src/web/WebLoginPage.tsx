@@ -4,6 +4,7 @@ import { generateKasirAuthPin, generateOutletCode, registerNewBusiness } from '.
 import {
   getLatestAndroidDownloadInfo,
   pullAllFromSupabase,
+  verifyActiveOutletInCloud,
 } from '../services/syncService';
 import {
   confirmOwnerForgotPassword,
@@ -131,6 +132,14 @@ export const WebLoginPage: React.FC<WebLoginPageProps> = ({ onLoginSuccess }) =>
       if (hashed !== user.passwordHash) {
         setError('Kata sandi salah.');
         return;
+      }
+
+      if (navigator.onLine && user.role !== 'owner') {
+        const outletCheck = await verifyActiveOutletInCloud(user.role);
+        if (!outletCheck.valid && outletCheck.reason === 'deactivated') {
+          setError('Cabang ini sedang dinonaktifkan oleh Owner. Hubungi Owner utama.');
+          return;
+        }
       }
 
       onLoginSuccess(user);

@@ -1560,12 +1560,8 @@ export async function syncWithCloud(): Promise<{ success: boolean; message: stri
     return { success: true, message: pullRes.message };
   }
 
-  // Jika outlet belum terdaftar di Cloud (toko baru), unggah data lokal
-  if (pullRes.message.includes('tidak ditemukan di Cloud')) {
-    const pushRes = await pushAllLocalToSupabase();
-    return { success: pushRes.success, message: pushRes.message };
-  }
-
+  // Jangan auto-push balik jika outlet tidak ditemukan di Cloud, agar outlet yang baru dihapus/dimigrasi
+  // tidak pernah terbuat ulang oleh perangkat lain yang masih terbuka.
   return { success: false, message: pullRes.message };
 }
 

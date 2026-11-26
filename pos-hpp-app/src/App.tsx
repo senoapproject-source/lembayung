@@ -223,6 +223,10 @@ export function App() {
             localStorage.removeItem(REMEMBERED_USER_KEY);
             localStorage.removeItem(KASIR_MODE_KEY);
             await db.syncQueue.clear().catch(() => {});
+            if (outletCheck.reason === 'not_found') {
+              await db.settings.clear().catch(() => {});
+              await db.users.clear().catch(() => {});
+            }
             setKasirModeActive(false);
             setCurrentUserId(null);
             alert(
@@ -230,7 +234,7 @@ export function App() {
                 ? `Cabang (${outletCheck.outletId}) sedang dinonaktifkan oleh Owner. Anda telah dikeluarkan otomatis.`
                 : `ID Outlet toko Anda (${outletCheck.outletId}) telah diperbarui ke format standar baru (LM-AXXXXX) atau sudah dihapus. Silakan Login ulang menggunakan Email/Username Anda.`
             );
-          } else {
+          } else if (savedUid) {
             setIsAutoSyncing(true);
             await syncWithCloud().catch(() => {});
             setIsAutoSyncing(false);
@@ -278,8 +282,37 @@ export function App() {
       setIsAutoSyncing(false);
     };
 
-    const handleOnline = () => {
+    const verifyAndHandleInvalidOutlet = async (): Promise<boolean> => {
+      const savedUid = localStorage.getItem(SESSION_KEY);
+      if (!savedUid) return false;
+      const savedUser = await db.users.get(savedUid);
+      const outletCheck = await verifyActiveOutletInCloud(savedUser?.role);
+      if (!outletCheck.valid) {
+        unregisterFcmPushToken().catch(() => {});
+        localStorage.removeItem(SESSION_KEY);
+        localStorage.removeItem(REMEMBERED_USER_KEY);
+        localStorage.removeItem(KASIR_MODE_KEY);
+        await db.syncQueue.clear().catch(() => {});
+        if (outletCheck.reason === 'not_found') {
+          await db.settings.clear().catch(() => {});
+          await db.users.clear().catch(() => {});
+        }
+        setKasirModeActive(false);
+        setCurrentUserId(null);
+        alert(
+          outletCheck.reason === 'deactivated'
+            ? `Cabang (${outletCheck.outletId}) sedang dinonaktifkan oleh Owner. Anda telah dikeluarkan otomatis.`
+            : `ID Outlet toko Anda (${outletCheck.outletId}) telah diperbarui ke format standar baru (LM-AXXXXX) atau sudah dihapus. Silakan Login ulang menggunakan Email/Username Anda.`
+        );
+        return false;
+      }
+      return true;
+    };
+
+    const handleOnline = async () => {
       setIsOnline(true);
+      const ok = await verifyAndHandleInvalidOutlet();
+      if (!ok) return;
       setIsAutoSyncing(true);
       syncWithCloud()
         .catch(() => {})
@@ -291,24 +324,8 @@ export function App() {
 
     const handleVisibility = async () => {
       if (document.visibilityState === 'visible' && navigator.onLine) {
-        const savedUid = localStorage.getItem(SESSION_KEY);
-        const savedUser = savedUid ? await db.users.get(savedUid) : undefined;
-        const outletCheck = await verifyActiveOutletInCloud(savedUser?.role);
-        if (!outletCheck.valid) {
-          unregisterFcmPushToken().catch(() => {});
-          localStorage.removeItem(SESSION_KEY);
-          localStorage.removeItem(REMEMBERED_USER_KEY);
-          localStorage.removeItem(KASIR_MODE_KEY);
-          await db.syncQueue.clear().catch(() => {});
-          setKasirModeActive(false);
-          setCurrentUserId(null);
-          alert(
-            outletCheck.reason === 'deactivated'
-              ? `Cabang (${outletCheck.outletId}) sedang dinonaktifkan oleh Owner. Anda telah dikeluarkan otomatis.`
-              : `ID Outlet toko Anda (${outletCheck.outletId}) telah diperbarui ke format standar baru (LM-AXXXXX) atau sudah dihapus. Silakan Login ulang menggunakan Email/Username Anda.`
-          );
-          return;
-        }
+        const ok = await verifyAndHandleInvalidOutlet();
+        if (!ok) return;
         syncWithCloud().catch(() => {});
         startRealtimeTransactionNotifications();
         checkAndNotifyUpdate().catch(() => {});
@@ -322,6 +339,7 @@ export function App() {
     let tick = 0;
     const interval = setInterval(() => {
       if (!navigator.onLine) return;
+      if (!localStorage.getItem(SESSION_KEY)) return;
       tick += 1;
       db.syncQueue.count().then((cnt) => {
         if (cnt > 0) {

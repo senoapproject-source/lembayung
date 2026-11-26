@@ -563,7 +563,7 @@ export async function setBranchActiveStatus(params: {
         .update({
           status: 'closed',
           waktu_tutup: nowIso,
-          catatan_tutup: `Cabang dinonaktifkan oleh Owner (${params.owner.nama})`,
+          catatan: `Cabang dinonaktifkan oleh Owner (${params.owner.nama})`,
         })
         .eq('outlet_id', cleanOid)
         .eq('status', 'open');
@@ -880,9 +880,10 @@ export async function createNewBranch(params: {
         alamatUsaha: params.alamatUsaha.trim() || '-',
         teleponUsaha: (params.teleponUsaha || params.currentSettings.teleponUsaha || '').trim(),
         ownerEmail: ownerEmail || undefined,
-        parentOutletId,
+        parentOutletId: effectiveParentOutletId,
         logoUsaha: params.currentSettings.logoUsaha,
         kasirAuthPin: newKasirAuthPin,
+        isActive: true,
         updatedAt: nowIso,
       },
     };

@@ -7,6 +7,7 @@ import {
   getInstalledAppVersion,
   pullAllFromSupabase,
   syncWithCloud,
+  verifyActiveOutletInCloud,
 } from '../services/syncService';
 import {
   confirmOwnerForgotPassword,
@@ -329,19 +330,21 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, onEnterKas
 
       // Jika belum ketemu di lokal & sedang online:
       // 1) Coba tarik dari kode toko yang ada, atau
-      // 2) Khusus Owner, cari otomatis outlet_id di Cloud berdasarkan username atau email!
+      // 2) Khusus Owner/Manager (atau jika kode lokal usang), cari otomatis outlet_id di Cloud berdasarkan username atau email!
       if (!user && navigator.onLine) {
-        if (!codeInput && !currentCode) {
-          const foundOutlet = await lookupOwnerOutletIdInCloud(clean);
-          if (foundOutlet) {
-            codeInput = foundOutlet;
-          }
-        }
         const targetCode = codeInput || currentCode;
         if (targetCode) {
           await pullAllFromSupabase(targetCode);
           allUsers = await db.users.toArray();
           user = allUsers.find((u) => matchUserLoginIdentifier(u, cleanLower));
+        }
+        if (!user && !codeInput) {
+          const foundOutlet = await lookupOwnerOutletIdInCloud(clean);
+          if (foundOutlet && foundOutlet !== targetCode) {
+            await pullAllFromSupabase(foundOutlet);
+            allUsers = await db.users.toArray();
+            user = allUsers.find((u) => matchUserLoginIdentifier(u, cleanLower));
+          }
         }
       }
 
@@ -358,6 +361,14 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, onEnterKas
       if (hashed !== user.passwordHash) {
         setError('Kata sandi salah.');
         return;
+      }
+
+      if (navigator.onLine && user.role !== 'owner') {
+        const outletCheck = await verifyActiveOutletInCloud(user.role);
+        if (!outletCheck.valid && outletCheck.reason === 'deactivated') {
+          setError('Cabang ini sedang dinonaktifkan oleh Owner. Hubungi Owner.');
+          return;
+        }
       }
 
       completeLogin(user);
