@@ -148,6 +148,9 @@ export function App() {
     [currentUserId]
   );
   const pendingSyncCount = useLiveQuery(() => db.syncQueue.count()) ?? 0;
+  const openCashierShiftForStatus = useLiveQuery(() =>
+    db.cashierShifts.where('status').equals('open').first()
+  );
   const activeCashierShift = useLiveQuery(
     async () => {
       if (!currentUserId) return undefined;
@@ -760,9 +763,6 @@ export function App() {
     </span>
   );
 
-  const openCashierShiftForStatus = useLiveQuery(() =>
-    db.cashierShifts.where('status').equals('open').first()
-  );
   const storeOpenState = evaluateStoreOpenStatus({
     hasOpenShift: Boolean(openCashierShiftForStatus),
     activeCashierName: openCashierShiftForStatus?.kasirNama,
