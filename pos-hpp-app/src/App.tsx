@@ -40,6 +40,7 @@ import {
   toggleStoreOpenByOwner,
 } from './services/branchService';
 import { SelfOrderShareModal } from './components/SelfOrderShareModal';
+import { ReceiptRpIcon } from './components/ReceiptRpIcon';
 import { CuaninLogo } from './components/CuaninLogo';
 import { LembayungSplash } from './components/LembayungSplash';
 import { AttendanceKioskModal } from './components/AttendanceKioskModal';
@@ -70,7 +71,6 @@ import {
   Package,
   Power,
   QrCode,
-  Receipt,
   Settings,
   ShoppingCart,
   Sun,
@@ -970,7 +970,7 @@ export function App() {
             <SidebarItem
               active={safeView === 'riwayat'}
               onClick={() => setActiveView('riwayat')}
-              icon={<Receipt size={17} />}
+              icon={<ReceiptRpIcon size={17} />}
               label="Riwayat Transaksi"
               collapsed={sidebarCollapsed}
             />
@@ -1380,7 +1380,7 @@ export function App() {
             <TabButton
               active={safeView === 'riwayat'}
               onClick={() => setActiveView('riwayat')}
-              icon={<Receipt size={18} />}
+              icon={<ReceiptRpIcon size={18} />}
               label="Riwayat"
             />
             <TabButton
@@ -1407,7 +1407,7 @@ export function App() {
             <TabButton
               active={safeView === 'riwayat'}
               onClick={() => setActiveView('riwayat')}
-              icon={<Receipt size={18} />}
+              icon={<ReceiptRpIcon size={18} />}
               label="Riwayat"
             />
             {currentUser.canRecordExpense && (

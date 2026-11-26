@@ -9,6 +9,7 @@ import {
 import { fetchOwnerBranches, switchActiveBranch } from '../services/branchService';
 import { sendPeriodicSummaryEmailToOwner } from '../services/authEmailService';
 import { LembayungLogo } from '../components/CuaninLogo';
+import { ReceiptRpIcon } from '../components/ReceiptRpIcon';
 import { WebOverviewPage } from './WebOverviewPage';
 import { WebSalesHistoryPage } from './WebSalesHistoryPage';
 import { WebBranchesTeamPage } from './WebBranchesTeamPage';
@@ -31,7 +32,6 @@ import {
   Mail,
   Moon,
   Package,
-  Receipt,
   Settings,
   Sun,
   Target,
@@ -290,7 +290,7 @@ export const WebDashboardShell: React.FC<WebDashboardShellProps> = ({
             <WebNavItem
               active={activeTab === 'sales'}
               onClick={() => setActiveTab('sales')}
-              icon={<Receipt size={16} />}
+              icon={<ReceiptRpIcon size={16} />}
               label="Penjualan & Riwayat"
             />
             <WebNavItem
