@@ -596,19 +596,24 @@ export async function submitSelfOrderToCashier(params: {
 
     if (error) return { success: false, error: error.message };
 
-    // Kirim push notification FCM ke perangkat kasir & Owner toko
+    // Kirim push notification FCM ke seluruh perangkat kasir & Owner toko yang login (tetap masuk walau aplikasi ditutup)
     const totalRp = formattedItems.reduce((s, i) => s + i.hargaJual * i.jumlah, 0);
     const totalQty = formattedItems.reduce((s, i) => s + i.jumlah, 0);
-    client.functions
-      .invoke('cuanin-auth-email', {
-        body: {
-          action: 'send_fcm_push',
-          outletId: cleanOid,
-          title: `📱 Pesanan Baru: ${label}`,
-          body: `${totalQty} item · Rp${totalRp.toLocaleString('id-ID')} (${formatModeLabel(fullMeta.mode)})`,
-        },
-      })
-      .catch(() => {});
+    try {
+      await Promise.race([
+        client.functions.invoke('cuanin-auth-email', {
+          body: {
+            action: 'send_fcm_push',
+            outletId: cleanOid,
+            title: `📱 Pesanan Baru: ${label}`,
+            body: `${totalQty} item · Rp${totalRp.toLocaleString('id-ID')} (${formatModeLabel(fullMeta.mode)})`,
+          },
+        }),
+        new Promise((resolve) => setTimeout(resolve, 3000)),
+      ]);
+    } catch {
+      // Jangan gagalkan pesanan pelanggan jika layanan push sedang lambat
+    }
 
     return { success: true, orderId };
   } catch (err) {

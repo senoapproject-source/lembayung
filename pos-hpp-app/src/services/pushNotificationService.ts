@@ -1,7 +1,7 @@
 import { Capacitor } from '@capacitor/core';
 import { PushNotifications } from '@capacitor/push-notifications';
 import { db } from '../db/database';
-import { getSupabaseClient, getSupabaseConfig } from './syncService';
+import { getSupabaseClient, getSupabaseConfig, pullAllFromSupabase } from './syncService';
 import { sendDeviceNotification } from './notificationService';
 import type { User } from '../types/models';
 
@@ -103,6 +103,13 @@ export async function registerFcmPushForUser(user: User): Promise<void> {
             dedupKey: notification.id ? `fcm-${notification.id}` : undefined,
           });
         }
+        // Langsung tarik data terbaru (mis. orderan Self-Order baru) agar tampil instan di layar Kasir
+        pullAllFromSupabase().catch(() => {});
+      });
+
+      await PushNotifications.addListener('pushNotificationActionPerformed', () => {
+        // Saat pengguna mengetuk notifikasi (dari kondisi aplikasi tertutup / background), langsung tarik orderan terbaru
+        pullAllFromSupabase().catch(() => {});
       });
     }
 

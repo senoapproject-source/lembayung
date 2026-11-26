@@ -434,9 +434,11 @@ export function App() {
 
   useEffect(() => {
     if (currentUser && navigator.onLine) {
+      initDeviceNotifications().catch(() => {});
       registerFcmPushForUser(currentUser).catch(() => {});
+      startRealtimeTransactionNotifications();
     }
-  }, [currentUser?.id]);
+  }, [currentUser?.id, settings?.outletId, isOnline]);
 
   // Muat daftar cabang milik Owner di Aplikasi Android agar Owner bisa pantau & pindah cabang langsung dari HP
   useEffect(() => {
