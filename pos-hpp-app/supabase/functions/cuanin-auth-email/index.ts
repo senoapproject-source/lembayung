@@ -1368,13 +1368,6 @@ Deno.serve(async (req: Request) => {
       lastLoginAt?: string;
     }
 
-    async function sha256Hex(text: string): Promise<string> {
-      const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
-      return Array.from(new Uint8Array(buf))
-        .map((b) => b.toString(16).padStart(2, '0'))
-        .join('');
-    }
-
     async function signAdminToken(admin: PlatformAdminRecord): Promise<string> {
       const exp = Date.now() + 24 * 60 * 60 * 1000;
       const bodyObj = { id: admin.id, email: admin.email, role: admin.role, nama: admin.nama, exp };
@@ -1453,14 +1446,24 @@ Deno.serve(async (req: Request) => {
         return jsonRes({ success: false, error: 'Email Super Admin tidak valid.' }, 200);
       }
       const otp = generateOtp6();
-      const otpHash = await hashOtp(otp, email);
+      const codeHash = await sha256Hex(`${email}:admin_bootstrap:${otp}`);
       const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
-      await sb.from('email_verifications').insert({
+      await sb
+        .from('email_verifications')
+        .update({ used: true })
+        .eq('email', email)
+        .eq('purpose', 'admin_bootstrap')
+        .eq('used', false);
+      const { error: insErr } = await sb.from('email_verifications').insert({
         email,
         purpose: 'admin_bootstrap',
-        otp_hash: otpHash,
+        code_hash: codeHash,
         expires_at: expiresAt,
+        used: false,
       });
+      if (insErr) {
+        return jsonRes({ success: false, error: `Gagal menyimpan OTP: ${insErr.message}` }, 200);
+      }
       await sendBrevoEmail({
         toEmail: email,
         toName: nama,
@@ -1489,21 +1492,21 @@ Deno.serve(async (req: Request) => {
       if (!email || !password || password.length < 8 || !/^\d{6}$/.test(otp)) {
         return jsonRes({ success: false, error: 'Lengkapi email, kata sandi minimal 8 karakter, dan OTP 6 digit.' }, 200);
       }
-      const otpHash = await hashOtp(otp, email);
+      const codeHash = await sha256Hex(`${email}:admin_bootstrap:${otp}`);
       const { data: rows } = await sb
         .from('email_verifications')
         .select('*')
         .eq('email', email)
         .eq('purpose', 'admin_bootstrap')
-        .eq('otp_hash', otpHash)
-        .is('used_at', null)
+        .eq('code_hash', codeHash)
+        .eq('used', false)
         .order('created_at', { ascending: false })
         .limit(1);
       const rec = Array.isArray(rows) ? rows[0] : null;
       if (!rec || new Date(rec.expires_at).getTime() < Date.now()) {
         return jsonRes({ success: false, error: 'Kode OTP salah atau sudah kedaluwarsa.' }, 200);
       }
-      await sb.from('email_verifications').update({ used_at: new Date().toISOString() }).eq('id', rec.id);
+      await sb.from('email_verifications').update({ used: true }).eq('id', rec.id);
 
       const nowIso = new Date().toISOString();
       const newAdmin: PlatformAdminRecord = {
