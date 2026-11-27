@@ -30,6 +30,7 @@ import {
 } from './lib/receipt';
 import { PublicReceiptView } from './components/PublicReceiptView';
 import { PublicSelfOrderView } from './components/PublicSelfOrderView';
+import { AdminPortal } from './admin/AdminPortal';
 import { WebLoginPage } from './web/WebLoginPage';
 import { WebDashboardShell } from './web/WebDashboardShell';
 import { WebBranchesTeamPage } from './web/WebBranchesTeamPage';
@@ -117,6 +118,10 @@ export function App() {
   const [hasSelfOrderQuery] = useState<boolean>(() =>
     Boolean(new URLSearchParams(window.location.search).get('order'))
   );
+  const [hasAdminQuery] = useState<boolean>(() => {
+    const p = new URLSearchParams(window.location.search);
+    return p.get('admin') === '1' || window.location.pathname.replace(/\/+$/, '') === '/admin';
+  });
   const [updateInfo, setUpdateInfo] = useState<AppUpdateInfo | null>(null);
   const [updateDismissed, setUpdateDismissed] = useState<boolean>(false);
   const [backExitToast, setBackExitToast] = useState<boolean>(false);
@@ -556,6 +561,10 @@ export function App() {
     window.addEventListener('hashchange', handleHashChange);
     return () => window.removeEventListener('hashchange', handleHashChange);
   }, []);
+
+  if (hasAdminQuery) {
+    return <AdminPortal />;
+  }
 
   if (hasSelfOrderQuery) {
     return <PublicSelfOrderView />;

@@ -1352,6 +1352,543 @@ Deno.serve(async (req: Request) => {
       });
     }
 
+    // =========================================================================
+    // 11. PLATFORM ADMINISTRATOR APIs (MULTI-ADMIN, SERVER-VERIFIED HMAC)
+    // =========================================================================
+    const ADMIN_STORE_ROW_ID = 'platform_admins';
+
+    interface PlatformAdminRecord {
+      id: string;
+      nama: string;
+      email: string;
+      passwordHash: string;
+      role: 'super_admin' | 'ops_support' | 'finance';
+      active: boolean;
+      createdAt: string;
+      lastLoginAt?: string;
+    }
+
+    async function sha256Hex(text: string): Promise<string> {
+      const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+      return Array.from(new Uint8Array(buf))
+        .map((b) => b.toString(16).padStart(2, '0'))
+        .join('');
+    }
+
+    async function signAdminToken(admin: PlatformAdminRecord): Promise<string> {
+      const exp = Date.now() + 24 * 60 * 60 * 1000;
+      const bodyObj = { id: admin.id, email: admin.email, role: admin.role, nama: admin.nama, exp };
+      const encoded = btoa(unescape(encodeURIComponent(JSON.stringify(bodyObj))));
+      const sig = await sha256Hex(`${encoded}.${serviceRoleKey}`);
+      return `${encoded}.${sig}`;
+    }
+
+    async function verifyAdminToken(token: string): Promise<PlatformAdminRecord | null> {
+      if (!token || !token.includes('.')) return null;
+      const [encoded, sig] = token.split('.');
+      if (!encoded || !sig) return null;
+      const expected = await sha256Hex(`${encoded}.${serviceRoleKey}`);
+      if (sig !== expected) return null;
+      try {
+        const parsed = JSON.parse(decodeURIComponent(escape(atob(encoded)))) as {
+          id: string;
+          email: string;
+          exp: number;
+        };
+        if (!parsed.exp || Date.now() > parsed.exp) return null;
+        const admins = await loadPlatformAdmins();
+        const found = admins.find(
+          (a) => a.id === parsed.id && a.email.toLowerCase() === parsed.email.toLowerCase() && a.active
+        );
+        return found || null;
+      } catch {
+        return null;
+      }
+    }
+
+    async function loadPlatformAdmins(): Promise<PlatformAdminRecord[]> {
+      const { data } = await sb
+        .from('app_versions')
+        .select('release_notes')
+        .eq('id', ADMIN_STORE_ROW_ID)
+        .maybeSingle();
+      const raw = (data as { release_notes?: string } | null)?.release_notes;
+      if (!raw) return [];
+      try {
+        const arr = JSON.parse(raw);
+        return Array.isArray(arr) ? (arr as PlatformAdminRecord[]) : [];
+      } catch {
+        return [];
+      }
+    }
+
+    async function savePlatformAdmins(admins: PlatformAdminRecord[]): Promise<void> {
+      await sb.from('app_versions').upsert(
+        {
+          id: ADMIN_STORE_ROW_ID,
+          latest_version: '1.0.0',
+          min_required_version: '1.0.0',
+          release_notes: JSON.stringify(admins),
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'id' }
+      );
+    }
+
+    // 11a. Cek apakah Super Admin pertama sudah dibuat
+    if (action === 'admin_bootstrap_status') {
+      const admins = await loadPlatformAdmins();
+      return jsonRes({ success: true, needsBootstrap: admins.length === 0, adminCount: admins.length });
+    }
+
+    // 11b. Kirim OTP untuk setup Super Admin pertama (hanya jalan jika belum ada admin sama sekali)
+    if (action === 'admin_bootstrap_send_otp') {
+      const admins = await loadPlatformAdmins();
+      if (admins.length > 0) {
+        return jsonRes({ success: false, error: 'Super Admin sudah terdaftar. Silakan login.' }, 200);
+      }
+      const email = String(payload.email || '').trim().toLowerCase();
+      const nama = String(payload.nama || 'Super Admin').trim();
+      if (!email || !email.includes('@')) {
+        return jsonRes({ success: false, error: 'Email Super Admin tidak valid.' }, 200);
+      }
+      const otp = generateOtp6();
+      const otpHash = await hashOtp(otp, email);
+      const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+      await sb.from('email_verifications').insert({
+        email,
+        purpose: 'admin_bootstrap',
+        otp_hash: otpHash,
+        expires_at: expiresAt,
+      });
+      await sendBrevoEmail({
+        toEmail: email,
+        toName: nama,
+        subject: `[Lembayung Admin] Kode Verifikasi Setup Super Admin: ${otp}`,
+        htmlContent: wrapEmailLayout(
+          'Aktivasi Super Admin Lembayung',
+          `<p>Halo <strong>${escapeHtml(nama)}</strong>,</p>
+           <p>Gunakan kode OTP berikut untuk mengaktifkan akun <strong>Super Admin</strong> pertama pada Dashboard Administrator Lembayung:</p>
+           <div style="font-size:28px;font-weight:800;letter-spacing:6px;color:#1F7A5A;background:#f4f9f6;border:1px solid #c5dfd1;border-radius:12px;padding:14px;text-align:center;margin:16px 0;">${otp}</div>
+           <p style="font-size:12px;color:#6b6a68;">Berlaku selama 10 menit. Abaikan email ini jika Anda tidak merasa melakukan aktivasi.</p>`
+        ),
+      });
+      return jsonRes({ success: true, message: `Kode OTP aktivasi Super Admin dikirim ke ${email}.` });
+    }
+
+    // 11c. Verifikasi OTP & buat Super Admin pertama
+    if (action === 'admin_bootstrap_confirm') {
+      const admins = await loadPlatformAdmins();
+      if (admins.length > 0) {
+        return jsonRes({ success: false, error: 'Super Admin sudah terdaftar. Silakan login.' }, 200);
+      }
+      const email = String(payload.email || '').trim().toLowerCase();
+      const nama = String(payload.nama || 'Super Admin').trim();
+      const password = String(payload.password || '');
+      const otp = String(payload.otp || '').trim();
+      if (!email || !password || password.length < 8 || !/^\d{6}$/.test(otp)) {
+        return jsonRes({ success: false, error: 'Lengkapi email, kata sandi minimal 8 karakter, dan OTP 6 digit.' }, 200);
+      }
+      const otpHash = await hashOtp(otp, email);
+      const { data: rows } = await sb
+        .from('email_verifications')
+        .select('*')
+        .eq('email', email)
+        .eq('purpose', 'admin_bootstrap')
+        .eq('otp_hash', otpHash)
+        .is('used_at', null)
+        .order('created_at', { ascending: false })
+        .limit(1);
+      const rec = Array.isArray(rows) ? rows[0] : null;
+      if (!rec || new Date(rec.expires_at).getTime() < Date.now()) {
+        return jsonRes({ success: false, error: 'Kode OTP salah atau sudah kedaluwarsa.' }, 200);
+      }
+      await sb.from('email_verifications').update({ used_at: new Date().toISOString() }).eq('id', rec.id);
+
+      const nowIso = new Date().toISOString();
+      const newAdmin: PlatformAdminRecord = {
+        id: crypto.randomUUID(),
+        nama,
+        email,
+        passwordHash: await sha256Hex(`lm_admin_v1:${email}:${password}`),
+        role: 'super_admin',
+        active: true,
+        createdAt: nowIso,
+        lastLoginAt: nowIso,
+      };
+      await savePlatformAdmins([newAdmin]);
+      const token = await signAdminToken(newAdmin);
+      return jsonRes({
+        success: true,
+        token,
+        admin: { id: newAdmin.id, nama: newAdmin.nama, email: newAdmin.email, role: newAdmin.role },
+      });
+    }
+
+    // 11d. Login Administrator
+    if (action === 'admin_login') {
+      const email = String(payload.email || '').trim().toLowerCase();
+      const password = String(payload.password || '');
+      if (!email || !password) {
+        return jsonRes({ success: false, error: 'Email dan kata sandi wajib diisi.' }, 200);
+      }
+      const admins = await loadPlatformAdmins();
+      const target = admins.find((a) => a.email.toLowerCase() === email);
+      if (!target) {
+        return jsonRes({ success: false, error: 'Akun Administrator tidak ditemukan.' }, 200);
+      }
+      if (!target.active) {
+        return jsonRes({ success: false, error: 'Akun Administrator ini sedang non-aktif.' }, 200);
+      }
+      const hash = await sha256Hex(`lm_admin_v1:${email}:${password}`);
+      if (hash !== target.passwordHash) {
+        return jsonRes({ success: false, error: 'Kata sandi salah.' }, 200);
+      }
+      target.lastLoginAt = new Date().toISOString();
+      await savePlatformAdmins(admins);
+      const token = await signAdminToken(target);
+      return jsonRes({
+        success: true,
+        token,
+        admin: { id: target.id, nama: target.nama, email: target.email, role: target.role },
+      });
+    }
+
+    // 11e. Dashboard Overview + Daftar Merchant, Versi Aplikasi, & Statistik DB
+    if (action === 'admin_dashboard_overview') {
+      const caller = await verifyAdminToken(String(payload.adminToken || ''));
+      if (!caller) return jsonRes({ success: false, error: 'Sesi admin tidak valid atau kedaluwarsa.' }, 401);
+
+      const [
+        outletsRes,
+        usersRes,
+        menusRes,
+        txRes,
+        shiftsRes,
+        tokensRes,
+        verRes,
+        expRes,
+      ] = await Promise.all([
+        sb.from('outlets').select('outlet_id, nama_usaha, nama_cabang, parent_outlet_id, owner_email, alamat_usaha, telepon_usaha, work_shifts, updated_at'),
+        sb.from('users').select('outlet_id, id, nama, role, active'),
+        sb.from('menus').select('outlet_id, id'),
+        sb.from('transactions').select('outlet_id, id, nomor_struk, waktu, total, status, metode_bayar, kasir_nama').order('waktu', { ascending: false }).limit(2000),
+        sb.from('cashier_shifts').select('outlet_id, status, kasir_nama, waktu_buka').eq('status', 'open'),
+        sb.from('device_push_tokens').select('outlet_id, role, platform, updated_at'),
+        sb.from('app_versions').select('*').eq('id', 'android').maybeSingle(),
+        sb.from('expenses').select('outlet_id, id', { count: 'exact', head: true }),
+      ]);
+
+      const outlets = (outletsRes.data as Array<Record<string, any>>) || [];
+      const users = (usersRes.data as Array<Record<string, any>>) || [];
+      const menus = (menusRes.data as Array<Record<string, any>>) || [];
+      const txs = (txRes.data as Array<Record<string, any>>) || [];
+      const openShifts = (shiftsRes.data as Array<Record<string, any>>) || [];
+      const tokens = (tokensRes.data as Array<Record<string, any>>) || [];
+
+      const menuCountMap = new Map<string, number>();
+      for (const m of menus) {
+        const oid = String(m.outlet_id || '').toUpperCase();
+        menuCountMap.set(oid, (menuCountMap.get(oid) || 0) + 1);
+      }
+      const userCountMap = new Map<string, number>();
+      for (const u of users) {
+        const oid = String(u.outlet_id || '').toUpperCase();
+        userCountMap.set(oid, (userCountMap.get(oid) || 0) + 1);
+      }
+      const tokenCountMap = new Map<string, number>();
+      for (const tk of tokens) {
+        const oid = String(tk.outlet_id || '').toUpperCase();
+        tokenCountMap.set(oid, (tokenCountMap.get(oid) || 0) + 1);
+      }
+      const openShiftSet = new Set(openShifts.map((s) => String(s.outlet_id || '').toUpperCase()));
+      const txStatsMap = new Map<string, { count: number; omzet: number; lastTxAt?: string }>();
+      let platformOmzet = 0;
+      let platformTxCount = 0;
+      for (const t of txs) {
+        if (t.status === 'void') continue;
+        const oid = String(t.outlet_id || '').toUpperCase();
+        const val = Number(t.total || 0);
+        platformOmzet += val;
+        platformTxCount += 1;
+        const prev = txStatsMap.get(oid) || { count: 0, omzet: 0, lastTxAt: t.waktu };
+        prev.count += 1;
+        prev.omzet += val;
+        if (!prev.lastTxAt || (t.waktu && t.waktu > prev.lastTxAt)) prev.lastTxAt = t.waktu;
+        txStatsMap.set(oid, prev);
+      }
+
+      const merchantRows = outlets.map((o) => {
+        const oid = String(o.outlet_id || '').toUpperCase();
+        const rawShifts = Array.isArray(o.work_shifts) ? o.work_shifts : [];
+        const cfg = (rawShifts[0] as Record<string, any> | undefined)?.storeHoursConfig as
+          | { branchActive?: boolean; storeManualOverride?: string; autoStoreHoursEnabled?: boolean }
+          | undefined;
+        const isActive = cfg?.branchActive !== false;
+        const isPusat = !o.parent_outlet_id || String(o.parent_outlet_id).toUpperCase() === oid;
+        const isStoreOpen =
+          isActive &&
+          (openShiftSet.has(oid) || cfg?.storeManualOverride === 'force_open');
+        const st = txStatsMap.get(oid) || { count: 0, omzet: 0 };
+        return {
+          outletId: oid,
+          namaUsaha: o.nama_usaha || '-',
+          namaCabang: o.nama_cabang || 'Pusat',
+          parentOutletId: o.parent_outlet_id || null,
+          isPusat,
+          ownerEmail: o.owner_email || '-',
+          alamatUsaha: o.alamat_usaha || '-',
+          teleponUsaha: o.telepon_usaha || '',
+          isActive,
+          isStoreOpen,
+          menuCount: menuCountMap.get(oid) || 0,
+          userCount: userCountMap.get(oid) || 0,
+          deviceCount: tokenCountMap.get(oid) || 0,
+          txCount: st.count,
+          omzet: st.omzet,
+          lastTxAt: st.lastTxAt || null,
+          updatedAt: o.updated_at || null,
+        };
+      });
+
+      const admins = await loadPlatformAdmins();
+
+      return jsonRes({
+        success: true,
+        summary: {
+          totalMerchants: merchantRows.filter((m) => m.isPusat).length,
+          totalOutlets: merchantRows.length,
+          activeOutlets: merchantRows.filter((m) => m.isActive).length,
+          openOutlets: merchantRows.filter((m) => m.isStoreOpen).length,
+          totalUsers: users.length,
+          totalMenus: menus.length,
+          totalDevices: tokens.length,
+          totalTransactions: platformTxCount,
+          totalOmzet: platformOmzet,
+          totalExpenses: expRes.count || 0,
+        },
+        merchants: merchantRows,
+        recentTransactions: txs.slice(0, 25),
+        appVersion: verRes.data || null,
+        admins: admins.map((a) => ({
+          id: a.id,
+          nama: a.nama,
+          email: a.email,
+          role: a.role,
+          active: a.active,
+          createdAt: a.createdAt,
+          lastLoginAt: a.lastLoginAt || null,
+        })),
+      });
+    }
+
+    // 11f. Non-aktifkan / Aktifkan Outlet (super_admin & ops_support)
+    if (action === 'admin_toggle_outlet_active') {
+      const caller = await verifyAdminToken(String(payload.adminToken || ''));
+      if (!caller) return jsonRes({ success: false, error: 'Sesi admin tidak valid.' }, 401);
+      if (caller.role === 'finance') {
+        return jsonRes({ success: false, error: 'Role Finance tidak memiliki izin mengubah status merchant.' }, 200);
+      }
+      const outletId = String(payload.outletId || '').trim().toUpperCase();
+      const active = Boolean(payload.active);
+      const { data: row } = await sb.from('outlets').select('work_shifts').eq('outlet_id', outletId).maybeSingle();
+      if (!row) return jsonRes({ success: false, error: 'Outlet tidak ditemukan.' }, 200);
+
+      const rawShifts = Array.isArray((row as Record<string, any>).work_shifts) && (row as Record<string, any>).work_shifts.length > 0
+        ? (row as Record<string, any>).work_shifts.map((s: Record<string, any>) => ({ ...s }))
+        : [{ id: 'shift-pagi', nama: 'Shift Pagi', jamMasuk: '08:00', jamPulang: '16:00' }];
+      const prevCfg = (rawShifts[0]?.storeHoursConfig as Record<string, any>) || {};
+      rawShifts[0].storeHoursConfig = {
+        ...prevCfg,
+        branchActive: active,
+        storeManualOverride: active ? 'auto' : 'force_closed',
+      };
+      const nowIso = new Date().toISOString();
+      await sb.from('outlets').update({ work_shifts: rawShifts, updated_at: nowIso }).eq('outlet_id', outletId);
+      if (!active) {
+        await sb
+          .from('cashier_shifts')
+          .update({ status: 'closed', waktu_tutup: nowIso, catatan: `Dinonaktifkan oleh Admin (${caller.nama})` })
+          .eq('outlet_id', outletId)
+          .eq('status', 'open');
+      }
+      return jsonRes({ success: true });
+    }
+
+    // 11g. Hapus Outlet Permanen (Khusus super_admin + wajib status Non-Aktif + verifikasi kata sandi Admin)
+    if (action === 'admin_delete_outlet') {
+      const caller = await verifyAdminToken(String(payload.adminToken || ''));
+      if (!caller) return jsonRes({ success: false, error: 'Sesi admin tidak valid.' }, 401);
+      if (caller.role !== 'super_admin') {
+        return jsonRes({ success: false, error: 'Hanya Super Admin yang dapat menghapus outlet permanen.' }, 200);
+      }
+      const outletId = String(payload.outletId || '').trim().toUpperCase();
+      const adminPassword = String(payload.adminPassword || '');
+      const checkHash = await sha256Hex(`lm_admin_v1:${caller.email.toLowerCase()}:${adminPassword}`);
+      if (checkHash !== caller.passwordHash) {
+        return jsonRes({ success: false, error: 'Kata sandi Super Admin salah.' }, 200);
+      }
+      const { data: row } = await sb.from('outlets').select('work_shifts').eq('outlet_id', outletId).maybeSingle();
+      if (!row) return jsonRes({ success: false, error: 'Outlet tidak ditemukan.' }, 200);
+      const rawShifts = Array.isArray((row as Record<string, any>).work_shifts) ? (row as Record<string, any>).work_shifts : [];
+      const cfg = (rawShifts[0] as Record<string, any> | undefined)?.storeHoursConfig as { branchActive?: boolean } | undefined;
+      if (cfg?.branchActive !== false) {
+        return jsonRes({ success: false, error: 'Outlet harus berstatus Non-Aktif terlebih dahulu sebelum dihapus.' }, 200);
+      }
+      const childTables = [
+        'transactions', 'saved_orders', 'expenses', 'menu_hpp_history', 'menus',
+        'recipes', 'purchases', 'ingredients', 'expense_categories', 'monthly_targets',
+        'cashier_shifts', 'attendances', 'device_push_tokens', 'users', 'outlets',
+      ];
+      for (const tbl of childTables) {
+        await sb.from(tbl).delete().eq('outlet_id', outletId);
+      }
+      return jsonRes({ success: true });
+    }
+
+    // 11h. Broadcast Push Notification (FCM) ke Semua Perangkat atau Outlet Tertentu
+    if (action === 'admin_broadcast_push') {
+      const caller = await verifyAdminToken(String(payload.adminToken || ''));
+      if (!caller) return jsonRes({ success: false, error: 'Sesi admin tidak valid.' }, 401);
+      if (caller.role === 'finance') {
+        return jsonRes({ success: false, error: 'Role Finance tidak memiliki izin mengirim broadcast.' }, 200);
+      }
+      const targetOutletId = String(payload.targetOutletId || 'ALL').trim().toUpperCase();
+      const title = String(payload.title || 'Pengumuman Lembayung').trim();
+      const body = String(payload.body || '').trim();
+      if (!body) return jsonRes({ success: false, error: 'Isi pesan notifikasi wajib diisi.' }, 200);
+
+      const rawSa = Deno.env.get('FIREBASE_SERVICE_ACCOUNT_JSON') || '';
+      if (!rawSa) return jsonRes({ success: false, error: 'FIREBASE_SERVICE_ACCOUNT_JSON belum disetel.' }, 200);
+      const sa = JSON.parse(rawSa) as { project_id: string; client_email: string; private_key: string };
+
+      let q = sb.from('device_push_tokens').select('token, outlet_id');
+      if (targetOutletId && targetOutletId !== 'ALL') {
+        q = q.eq('outlet_id', targetOutletId);
+      }
+      const { data: rows } = await q;
+      const uniqueTokens = Array.from(new Set(((rows as Array<{ token: string }> | null) || []).map((r) => r.token).filter(Boolean)));
+      if (uniqueTokens.length === 0) {
+        return jsonRes({ success: true, sentCount: 0, message: 'Tidak ada perangkat terdaftar pada target tersebut.' });
+      }
+      const accessToken = await getFirebaseAccessToken(sa);
+      const fcmUrl = `https://fcm.googleapis.com/v1/projects/${sa.project_id}/messages:send`;
+      let sentCount = 0;
+      await Promise.all(
+        uniqueTokens.map(async (token) => {
+          const resp = await fetch(fcmUrl, {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              message: {
+                token,
+                notification: { title, body },
+                android: { priority: 'HIGH', notification: { channel_id: 'cuanin_transactions_channel', sound: 'default' } },
+              },
+            }),
+          });
+          if (resp.ok) sentCount += 1;
+        })
+      );
+      return jsonRes({ success: true, sentCount, totalTargets: uniqueTokens.length });
+    }
+
+    // 11i. Update Info Versi Aplikasi (Khusus super_admin)
+    if (action === 'admin_update_app_version') {
+      const caller = await verifyAdminToken(String(payload.adminToken || ''));
+      if (!caller || caller.role !== 'super_admin') {
+        return jsonRes({ success: false, error: 'Hanya Super Admin yang dapat mengubah konfigurasi versi aplikasi.' }, 200);
+      }
+      const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
+      if (payload.minRequiredVersion) patch.min_required_version = String(payload.minRequiredVersion).trim();
+      if (payload.releaseNotes !== undefined) patch.release_notes = String(payload.releaseNotes).trim();
+      if (payload.apkDownloadUrl !== undefined) patch.apk_download_url = String(payload.apkDownloadUrl).trim() || null;
+      const { error } = await sb.from('app_versions').update(patch).eq('id', 'android');
+      if (error) return jsonRes({ success: false, error: error.message }, 200);
+      return jsonRes({ success: true });
+    }
+
+    // 11j. Kelola Tim Administrator (Tambah / Non-Aktifkan / Hapus — Khusus super_admin)
+    if (action === 'admin_manage_admins') {
+      const caller = await verifyAdminToken(String(payload.adminToken || ''));
+      if (!caller || caller.role !== 'super_admin') {
+        return jsonRes({ success: false, error: 'Hanya Super Admin yang dapat mengelola tim Administrator.' }, 200);
+      }
+      const op = String(payload.op || '');
+      const admins = await loadPlatformAdmins();
+
+      if (op === 'create') {
+        const nama = String(payload.nama || '').trim();
+        const email = String(payload.email || '').trim().toLowerCase();
+        const password = String(payload.password || '');
+        const role = (['super_admin', 'ops_support', 'finance'].includes(String(payload.role))
+          ? String(payload.role)
+          : 'ops_support') as PlatformAdminRecord['role'];
+        if (!nama || !email.includes('@') || password.length < 8) {
+          return jsonRes({ success: false, error: 'Nama, email valid, dan kata sandi min. 8 karakter wajib diisi.' }, 200);
+        }
+        if (admins.some((a) => a.email.toLowerCase() === email)) {
+          return jsonRes({ success: false, error: 'Email admin ini sudah terdaftar.' }, 200);
+        }
+        const newAdm: PlatformAdminRecord = {
+          id: crypto.randomUUID(),
+          nama,
+          email,
+          passwordHash: await sha256Hex(`lm_admin_v1:${email}:${password}`),
+          role,
+          active: true,
+          createdAt: new Date().toISOString(),
+        };
+        admins.push(newAdm);
+        await savePlatformAdmins(admins);
+        // Kirim email undangan admin
+        const portalUrl = String(payload.portalUrl || 'https://lembayung-so1.pages.dev/?admin=1');
+        await sendBrevoEmail({
+          toEmail: email,
+          toName: nama,
+          subject: `[Lembayung Admin] Akun Administrator Anda Aktif (${role})`,
+          htmlContent: wrapEmailLayout(
+            'Akses Dashboard Administrator Lembayung',
+            `<p>Halo <strong>${escapeHtml(nama)}</strong>, Anda telah ditambahkan sebagai <strong>${escapeHtml(role)}</strong> oleh ${escapeHtml(caller.nama)}.</p>
+             <div style="background:#faf9f5;border:1px solid #e2e0d8;border-radius:12px;padding:14px;margin:14px 0;">
+               <div><strong>Email:</strong> ${escapeHtml(email)}</div>
+               <div><strong>Kata Sandi:</strong> <code>${escapeHtml(password)}</code></div>
+               <div><strong>Portal Admin:</strong> <a href="${escapeHtml(portalUrl)}">${escapeHtml(portalUrl)}</a></div>
+             </div>`
+          ),
+        }).catch(() => {});
+        return jsonRes({ success: true });
+      }
+
+      if (op === 'toggle_active') {
+        const targetId = String(payload.targetAdminId || '');
+        if (targetId === caller.id) {
+          return jsonRes({ success: false, error: 'Tidak dapat menonaktifkan akun Anda sendiri.' }, 200);
+        }
+        const target = admins.find((a) => a.id === targetId);
+        if (!target) return jsonRes({ success: false, error: 'Admin tidak ditemukan.' }, 200);
+        target.active = Boolean(payload.active);
+        await savePlatformAdmins(admins);
+        return jsonRes({ success: true });
+      }
+
+      if (op === 'delete') {
+        const targetId = String(payload.targetAdminId || '');
+        if (targetId === caller.id) {
+          return jsonRes({ success: false, error: 'Tidak dapat menghapus akun Anda sendiri.' }, 200);
+        }
+        const target = admins.find((a) => a.id === targetId);
+        if (!target) return jsonRes({ success: false, error: 'Admin tidak ditemukan.' }, 200);
+        if (target.active) {
+          return jsonRes({ success: false, error: 'Non-aktifkan akun admin terlebih dahulu sebelum dihapus.' }, 200);
+        }
+        await savePlatformAdmins(admins.filter((a) => a.id !== targetId));
+        return jsonRes({ success: true });
+      }
+
+      return jsonRes({ success: false, error: 'Operasi admin tidak dikenali.' }, 200);
+    }
+
     return jsonRes({ success: false, error: `Aksi "${action}" tidak dikenali.` }, 400);
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'Terjadi kesalahan pada server email.';
